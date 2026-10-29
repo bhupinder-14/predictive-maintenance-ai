@@ -60,6 +60,7 @@ class DataQualityReport:
     out_of_range: dict[str, int] = field(default_factory=dict)
     invalid_types: int = 0
     non_numeric_errors: dict[str, int] = field(default_factory=dict)
+    invalid_binary_labels: dict[str, int] = field(default_factory=dict)
 
     @property
     def has_issues(self) -> bool:
@@ -72,6 +73,7 @@ class DataQualityReport:
             or any(v > 0 for v in self.out_of_range.values())
             or self.invalid_types
             or any(v > 0 for v in self.non_numeric_errors.values())
+            or any(v > 0 for v in self.invalid_binary_labels.values())
         )
 
     def summary(self) -> str:
@@ -104,8 +106,13 @@ class DataQualityReport:
             for col, cnt in self.non_numeric_errors.items():
                 if cnt > 0:
                     lines.append(f"    {col}: {cnt}")
+        if any(v > 0 for v in self.invalid_binary_labels.values()):
+            lines.append("  INVALID BINARY LABELS:")
+            for col, cnt in self.invalid_binary_labels.items():
+                if cnt > 0:
+                    lines.append(f"    {col}: {cnt}")
         if not self.has_issues:
-            lines.append("  ✅ No data-quality issues found.")
+            lines.append("  No data-quality issues found.")
         return "\n".join(lines)
 
 
@@ -183,6 +190,18 @@ def validate_dataset(df: pd.DataFrame) -> DataQualityReport:
             (~df[COLUMN_TYPE].isin(EXPECTED_TYPES)).sum()
         )
 
+    # Target labels must be numeric binary indicators. Validate all labels,
+    # including failure-mode columns, even though the latter are excluded
+    # from the model feature set.
+    for col in [TARGET_COLUMN, *FAILURE_TYPE_COLUMNS]:
+        if col not in df.columns:
+            continue
+        values = pd.to_numeric(df[col], errors="coerce")
+        invalid = values.isna() | ~values.isin([0, 1])
+        count = int(invalid.sum())
+        if count:
+            report.invalid_binary_labels[col] = count
+
     return report
 
 
@@ -200,6 +219,10 @@ def clean_dataset(df: pd.DataFrame) -> pd.DataFrame:
     The function never silently changes the *meaning* of data.
     """
     logger.info("Cleaning dataset (%d rows)", len(df))
+    required = set(ALL_EXPECTED_COLUMNS)
+    missing = sorted(required - set(df.columns))
+    if missing:
+        raise ValueError(f"Dataset is missing required AI4I columns: {missing}")
     df = df.copy()
 
     # 1. Drop exact duplicates
@@ -238,10 +261,15 @@ def clean_dataset(df: pd.DataFrame) -> pd.DataFrame:
             logger.info("Dropping %d rows with invalid Type values", n_invalid)
         df = df.loc[valid_mask]
 
-    # 5. Ensure target columns are int
+    # 5. Reject invalid labels rather than truncating/casting them silently.
     for col in [TARGET_COLUMN] + FAILURE_TYPE_COLUMNS:
-        if col in df.columns:
-            df[col] = df[col].astype(int)
+        numeric = pd.to_numeric(df[col], errors="coerce")
+        invalid = numeric.isna() | ~numeric.isin([0, 1])
+        if invalid.any():
+            raise ValueError(
+                f"Column {col!r} contains {int(invalid.sum())} invalid non-binary labels"
+            )
+        df[col] = numeric.astype(int)
 
     df = df.reset_index(drop=True)
     logger.info("Cleaning complete: %d rows remaining", len(df))

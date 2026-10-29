@@ -125,6 +125,10 @@ def evaluate_anomaly_model(
         "score_max": float(scores.max()),
         "score_mean": float(scores.mean()),
         "score_std": float(scores.std()),
+        # IsolationForest.predict labels score_samples values below its
+        # learned offset as anomalous. Persisting this cutoff makes the
+        # decision rule explicit and keeps scoring semantics auditable.
+        "score_samples_threshold": float(model.offset_),
     }
 
     # Comparison with ground-truth failure labels (informational)
@@ -205,7 +209,12 @@ def predict_anomaly(
 
     model: IsolationForest = artifact.estimator
     scores = model.score_samples(X)
-    predictions = model.predict(X)
+    # ``score_samples`` is higher for more normal observations. The learned
+    # offset is the documented contamination-based cutoff used by predict().
+    threshold = artifact.metadata.threshold
+    if threshold is None:
+        threshold = float(model.offset_)
+    predictions = np.where(scores < threshold, -1, 1)
 
     results: list[AnomalyResult] = []
     feature_names = artifact.metadata.feature_names

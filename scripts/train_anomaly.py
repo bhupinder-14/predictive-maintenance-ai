@@ -118,6 +118,7 @@ def main() -> None:
             "n_estimators": ISOLATION_FOREST_N_ESTIMATORS,
             "contamination": ISOLATION_FOREST_CONTAMINATION,
         },
+        threshold=float(model.offset_),
         metrics=results,
     )
 

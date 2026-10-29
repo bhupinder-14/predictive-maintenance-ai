@@ -239,7 +239,9 @@ def predict_failure(
             X = X.reshape(1, -1)
 
     model = artifact.estimator
-    thresh = threshold if threshold is not None else (artifact.metadata.threshold or 0.5)
+    thresh = threshold if threshold is not None else artifact.metadata.threshold
+    if thresh is None:
+        thresh = 0.5
 
     has_proba = hasattr(model, "predict_proba")
     results: list[FailurePrediction] = []

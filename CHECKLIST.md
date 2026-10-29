@@ -61,6 +61,27 @@ Deliverables
 - A README explaining the dataset, assumptions, training procedure, and results.
 Milestone completion condition: You can run a documented training command from the repository, train both models, evaluate them on held-out data, save the artifacts, and load them again successfully.
 
+### Milestone 1 execution status (verified 2026-10-30)
+
+- [x] Actual UCI AI4I CSV loaded with UTF-8 BOM handling; 10,000 rows and all 14 expected columns.
+- [x] Quality checks executed: no missing values, duplicate rows, duplicate UDIs, invalid Type values, or out-of-range sensor values; 339/10,000 rows have `Machine failure=1` (3.39%).
+- [x] Cleaning, stratified train/validation/test split, and train-only learned preprocessing executed. Failure target and failure-mode sublabels are not model features.
+- [x] Isolation Forest and statistical baseline trained and compared. Test: 103/2,000 flagged, anomaly rate 5.15%, score cutoff −0.585987; failure-label overlap precision 0.1262 and recall 0.1912. A statistical anomaly is not a confirmed failure.
+- [x] Logistic Regression baseline and class-weighted Random Forest comparison executed. Random Forest selected by validation F1 at threshold 0.605. Held-out test: precision 0.7955, recall 0.5147, F1 0.6250, PR-AUC 0.7406, ROC-AUC 0.9648; TN=1923, FP=9, FN=33, TP=35.
+- [x] Preprocessors, estimators, thresholds, features, metadata, and evaluation JSON saved under `models/`; the evaluation script reloaded both saved bundles and generated the held-out results without retraining.
+- [x] Pytest suite executed: 5 passed.
+
+Executed on Python 3.12.14 in the project `.venv`. Commands:
+
+```powershell
+python -m scripts.train_anomaly
+python -m scripts.train_failure
+python -m scripts.evaluate
+python -m pytest -q
+```
+
+Full metric output is generated at `models/anomaly_v1_evaluation.json` and `models/failure_v1_evaluation.json`. Dataset caveats: AI4I is synthetic, and the available rows do not support chronological future-failure forecasting. The anomaly score is not a probability. Milestone 1 status does not imply completion of Milestones 2–5.
+
 Milestone 2: Build the Prediction API Using FastAPI
 Goal: Turn your trained models into a usable service that accepts sensor observations and returns predictions.
 
