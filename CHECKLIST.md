@@ -156,7 +156,7 @@ Milestone completion condition: You can start the API, open its interactive docu
 - [x] Initial verification `python -m pytest -q`: 15 passed (five Milestone 1 tests plus ten API tests). The audit identified a NaN error-serialization bug and Starlette's deprecated legacy `httpx` TestClient path; both were corrected and reverified below.
 - [x] Live Uvicorn verification: both models loaded; health, readiness, both predictions, `/docs`, and `/openapi.json` returned 200; an invalid request returned 422.
 
-Start the service with `python -m uvicorn src.api.main:app --host 127.0.0.1 --port 8000`, then open `http://127.0.0.1:8000/docs`. SQL persistence and history remain Milestone 3 work.
+At Milestone 2 acceptance, SQL persistence and history were deferred to Milestone 3; they are now implemented and recorded in the Milestone 3 status below.
 
 ### Independent Milestone 2 audit follow-up (2026-10-30)
 
@@ -267,6 +267,20 @@ Deliverables
 - Database error handling.
 - Tests verifying that records persist and relationships work correctly.
 Milestone completion condition: You can submit a prediction, find its record in the database, retrieve it through the API, restart the application, and retrieve it again.
+
+### Milestone 3 implementation status (verified 2026-10-30)
+
+- [x] Added the four SQLite/SQLAlchemy tables with primary keys, foreign keys, relationships, result/range constraints, and query indexes.
+- [x] Added a reusable SQLite engine/session manager with foreign-key enforcement, startup schema creation, and `python -m src.database.init_db` initialization.
+- [x] Persisted equipment registration, sensor observations, model output, version and inference latency in a single transaction for both prediction endpoints. Inference or write errors roll back; a failed write returns HTTP 503.
+- [x] Added equipment list/history and prediction retrieval endpoints. The history contains raw readings and associated anomaly/failure result fields.
+- [x] Added reusable SQL-backed history queries for latest readings, date-range predictions, flagged equipment, average anomaly scores, model-version counts, and average/nearest-rank P95 latency.
+- [x] Tests use a separate temporary SQLite database. Verified normal prediction writes, FK relationships, historical queries, simulated write failure rollback, startup and runtime database outage readiness, recovery after outage, and records surviving a fresh application start using the same database file.
+- [x] Final suite: **26 passed**. See `verification-report.md` for the exact run and coverage summary.
+
+No drift computation or monitoring endpoint is included; the monitoring table is only a schema for a later milestone. SQLAlchemy `create_all` initializes missing tables and is not a migration system for changing existing schemas.
+
+`/ready` performs a read-only `SELECT 1` through a managed SQLAlchemy connection on each request. The connection is closed after the probe. A failed probe returns sanitized HTTP 503 with `database=false`; when the connection recovers, readiness returns HTTP 200 again. `/health` remains a basic liveness response during database outages.
 
 Milestone 4: Automated Testing, Monitoring, and Data Drift
 Goal: Demonstrate that your application is not only capable of generating predictions but also testable, observable, and able to detect signs of changing input data.

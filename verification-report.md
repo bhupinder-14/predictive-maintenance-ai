@@ -87,7 +87,7 @@ Observed results: `/health`, `/ready`, `/predict/anomaly`, `/predict/failure`, `
 
 Initial full test command `python -m pytest -v`: **15 passed** (10 API tests and 5 Milestone 1 tests). The suite initially emitted a Starlette deprecation warning because `httpx` was installed without Starlette's recommended `httpx2` TestClient dependency. The dependency was updated to `httpx2>=2.0`, and the final audit rerun is recorded below.
 
-The API accepts only `Type` and the five trained sensor features. It rejects failure labels, identifiers, unknown fields, missing fields, nonnumeric sensor values, invalid Type values, and values outside the documented bounds. Anomaly scores remain distinct from failure probability; the failure response's Random Forest probability estimate is not calibrated. No database, persistence, monitoring, deployment, or dashboard functionality was added; those remain later milestones.
+At the time of the Milestone 2 audit, the API accepted only `Type` and the five trained sensor features and had no persistence. Milestone 3 adds optional equipment metadata and SQLite persistence as documented below. The model still receives only the six trained features; failure labels and dataset identifiers remain excluded. Anomaly scores remain distinct from failure probability, and the Random Forest probability estimate is not calibrated.
 
 ### Independent acceptance audit follow-up
 
@@ -97,3 +97,69 @@ The API accepts only `Type` and the five trained sensor features. It rejects fai
 - Current Starlette TestClient code deprecates the legacy `httpx` client and recommends `httpx2`; `requirements.txt` now declares `httpx2>=2.0`. With installed `httpx2` 2.16.0, the warning no longer appears.
 - Final `python -m pytest -v`: **20 passed** (15 API cases and 5 Milestone 1 tests). Final `python -m pip check`: no broken requirements.
 - After the validation-handler and TestClient dependency changes, Uvicorn was started again with both artifacts. `/health`, `/ready`, both prediction routes, `/docs`, and `/openapi.json` returned 200; a live NaN request returned 422. Prediction-event logs included IDs, versions, timestamps, outcomes, and latency. No Milestone 3 work was started.
+
+## Milestone 3 implementation verification (2026-10-30)
+
+Implemented database support in `src/database/` and connected it to the existing FastAPI prediction workflow. No Milestone 1 model artifacts, estimators, preprocessors, or training code were changed. Database initialization uses SQLAlchemy `Base.metadata.create_all`; this creates missing tables but is not a migration mechanism for changing existing schemas.
+
+### Schema and workflow
+
+- `equipment`: integer primary key, name, AI4I product `Type` stored as `equipment_type`, optional location, and creation timestamp.
+- `sensor_readings`: equipment FK, timestamp, all six original model input values, and source. Database CHECK constraints enforce supported Type and configured numeric bounds.
+- `predictions`: UUID primary key, equipment and reading FKs, model version, mutually exclusive anomaly fields or failure probability, latency, and creation timestamp. CHECK constraints enforce result shape, valid probability, and nonnegative latency.
+- `monitoring_reports`: report fields and window-order constraint only. No drift calculations or monitoring endpoints were added.
+
+Foreign keys are enabled for SQLite connections. The database manager creates parent directories for file-backed SQLite databases, uses `check_same_thread=False`, supports in-memory test databases, and exposes short-lived sessions. The application initializes the database during startup. `/ready` now reports model and database readiness; `/health` remains a process-health response when database initialization fails.
+
+Both inference endpoints create/reuse equipment, persist the sensor observation, run the existing inference service on the unchanged six raw model fields, persist the model-specific result, and commit as one transaction. A model or database exception rolls back pending writes. A persistence error returns sanitized HTTP 503; no response claims success when the prediction was not committed. The response prediction ID is also the persisted record ID.
+
+Database setup commands from the repository root:
+
+```powershell
+python -m src.database.init_db
+python -m uvicorn src.api.main:app --host 127.0.0.1 --port 8000
+python -m pytest -v
+```
+
+Set `DATABASE_URL` to select another SQLite file; a relative `sqlite:///./name.db` path is resolved from the project root. Test apps override this with a distinct SQLite file under pytest's temporary directory. Historical query helpers are implemented in `src/database/repository.py` and execute against persisted rows: latest readings, date-range prediction selection, most flagged equipment, mean anomaly score, model-version counts, and mean/nearest-rank P95 latency.
+
+### Executed verification
+
+Command: `.venv\Scripts\python.exe -m pytest -q`
+
+Result: **25 passed in 8.94s** (no warnings in the captured output).
+
+Dependency check: `.venv\Scripts\python.exe -m pip check` → **No broken requirements found.**
+
+The documented initializer was also invoked with `DATABASE_URL` pointed at an isolated temporary SQLite file; output: `Database schema initialized.`
+
+Coverage by test:
+
+- `tests/test_milestone1.py` (5): actual dataset/BOM validation, failure-label leakage exclusion, invalid labels, train-only preprocessing fit, and saved-model reload/inference.
+- `tests/test_api.py` (15 cases including parametrized partial availability): health/readiness and OpenAPI, valid anomaly/failure predictions, required/invalid/range/extra field validation, NaN/infinity sanitization, direct-vs-API inference equivalence, missing/partial/incompatible model artifacts, loader errors, and sanitized inference errors. All these tests now use a fresh temporary database.
+- `test_database_initialization_equipment_and_foreign_key_relationships`: four table names, equipment/readings/prediction relationship navigation, and active SQLite foreign-key pragma.
+- `test_historical_sql_queries_use_persisted_records`: latest reading, bounded date query, flagged-equipment count, mean anomaly score, model-version counts, average latency, and nearest-rank P95 from seeded records.
+- `test_api_persists_prediction_history_and_survives_restart`: both prediction types, equipment registration/reuse, record lookup, history, and a second FastAPI app instance reopening the same SQLite file.
+- `test_database_write_failure_rolls_back_and_never_returns_success`: injected prediction INSERT failure gives HTTP 503 and leaves no equipment, reading, or prediction records.
+- `test_database_initialization_failure_keeps_health_and_marks_unready`: unsupported driver leaves `/health` at 200, `/ready` at 503 with `database=false`, and prediction request at sanitized 503.
+
+The restart test demonstrates durable file-backed SQLite records across application startup/shutdown. README examples document the optional equipment fields and history endpoints. Sample response identifiers and timestamps are placeholders, not additional measured model results. No Milestone 4 work was started.
+
+## Independent Milestone 3 acceptance audit (2026-10-30)
+
+Audit run independently against fresh temporary SQLite files; no application code or model artifacts were changed during the audit.
+
+- Full suite: `.venv\Scripts\python.exe -m pytest -v` → **25 passed in 8.24s**, including all five Milestone 1 tests and all 15 Milestone 2 API cases. The tests use pytest temporary databases.
+- Dependency check: `.venv\Scripts\python.exe -m pip check` → **No broken requirements found.**
+- Direct schema/API checks passed: required tables, primary/foreign keys and indexes were present; `failure_probability` is nullable; empty historical query outputs were correct; valid anomaly and failure records were linked to readings/equipment; all six raw input values round-tripped in history; listing, pagination and prediction retrieval worked; unknown equipment and prediction IDs returned 404; sensor-reading INSERT failure rolled back its equipment write and returned 503; persisted records remained retrievable after a new application startup.
+- A simulated startup database initialization failure produced `/health` 200, `/ready` 503 with `database=false`, and a prediction 503. A separately simulated database outage after successful startup showed `/equipment` returning 503, but `/ready` still returned 200 with `database=true`.
+
+**Needs attention:** readiness reflects only the startup `database.initialized` flag; it does not check an active connection when `/ready` is requested. The README and checklist now state this limitation. Core persistence, retrieval, rollback, and restart acceptance flows were independently verified. This audit did not begin Milestone 4.
+
+## Runtime readiness fix and verification (2026-10-30)
+
+Updated `Database.check_connection()` to execute read-only `SELECT 1` using `engine.connect()` as a context manager. The readiness route now checks that probe on every request and reports `database=false` with HTTP 503 when unavailable. A failed probe does not expose exception details; `/health` remains independent from database status. No prediction route, transaction flow, model implementation, or trained artifact was changed.
+
+The prior runtime-outage finding was reproduced by an automated test that makes only the readiness probe fail, then removes the failure and checks recovery. It asserts normal readiness is HTTP 200, simulated outage readiness is sanitized HTTP 503, `/health` remains HTTP 200 during the outage, and readiness returns to HTTP 200 after recovery. The existing startup-unavailable test also remains in the suite.
+
+Final command: `.venv\Scripts\python.exe -m pytest -v` → **26 passed in 8.50s**, including all Milestone 1 and 2 tests. `.venv\Scripts\python.exe -m pip check` → **No broken requirements found.** The test apps use isolated pytest temporary SQLite databases. No Milestone 4 work was started.

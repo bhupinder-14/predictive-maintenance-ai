@@ -1,8 +1,6 @@
 # Predictive Maintenance & Anomaly Detection AI
 
-Milestones 1 and 2 are implemented: the repository validates the actual AI4I 2020 CSV, trains separate anomaly-detection and row-level failure-classification pipelines, evaluates held-out data, saves versioned artifacts, and serves those existing artifacts through a FastAPI prediction service.
-
-Milestones 3–5 (persistence, monitoring, deployment) remain future work.
+Milestones 1–3 are implemented: the repository validates the actual AI4I 2020 CSV, trains separate anomaly-detection and row-level failure-classification pipelines, serves the saved artifacts through FastAPI, and persists observations and predictions in SQLite. Monitoring/drift detection and deployment remain future work.
 
 ## Dataset
 
@@ -74,11 +72,11 @@ Open interactive Swagger documentation at `http://127.0.0.1:8000/docs`; the Open
 | Method and path | Behavior |
 | --- | --- |
 | `GET /health` | Basic process health. |
-| `GET /ready` | Confirms both model bundles loaded and passed compatibility checks; otherwise returns 503. |
+| `GET /ready` | Confirms both model bundles are loaded and runs a read-only database connectivity probe (`SELECT 1`); returns 503 if either is unavailable. |
 | `POST /predict/anomaly` | Returns Isolation Forest score, normal/anomaly classification, and transparent standardized-feature deviations. The score is not a failure probability. |
 | `POST /predict/failure` | Returns the row-level predicted failure class and Random Forest `predict_proba` estimate. The estimate is not separately calibrated and is not a future-failure forecast. |
 
-Both prediction endpoints accept exactly the six model inputs: `Type`, `Air temperature [K]`, `Process temperature [K]`, `Rotational speed [rpm]`, `Torque [Nm]`, and `Tool wear [min]`. IDs, `Machine failure`, and failure-mode labels are not accepted. Type must be `L`, `M`, or `H`; numeric values must be JSON numbers within the documented dataset bounds (290–310 K, 300–320 K, 1,000–3,000 rpm, 0–100 Nm, and 0–300 minutes). Missing or extra fields and invalid values receive HTTP 422.
+Both prediction endpoints accept the six model inputs: `Type`, `Air temperature [K]`, `Process temperature [K]`, `Rotational speed [rpm]`, `Torque [Nm]`, and `Tool wear [min]`. Optional database fields are `equipment_id` (reuse a registered record), `equipment_name`, `equipment_location`, and timezone-aware `observed_at`. Provide an existing `equipment_id` or optionally a name/location; when identity is omitted, the request is registered as a distinct equipment record and the returned `equipment_id` can be reused. The model receives only the six original model inputs. Dataset identifiers (`UDI`, `Product ID`), `Machine failure`, and failure-mode labels are not accepted. Type must be `L`, `M`, or `H`; numeric values must be JSON numbers within the documented dataset bounds (290–310 K, 300–320 K, 1,000–3,000 rpm, 0–100 Nm, and 0–300 minutes). Missing or extra fields and invalid values receive HTTP 422.
 
 Example request (the same observation can be posted to either prediction route):
 
@@ -89,20 +87,24 @@ Example request (the same observation can be posted to either prediction route):
   "Process temperature [K]": 308.6,
   "Rotational speed [rpm]": 1551,
   "Torque [Nm]": 42.8,
-  "Tool wear [min]": 0
+  "Tool wear [min]": 0,
+  "equipment_name": "CNC 12",
+  "equipment_location": "Line A"
 }
 ```
 
-Example anomaly response from a live request:
+Illustrative anomaly response shape (IDs and times are generated per request):
 
 ```json
 {
-  "prediction_id": "cc4de0b7-9d67-4de4-8b5a-6f018bdc4d72",
+  "prediction_id": "<generated UUID>",
+  "equipment_id": 1,
+  "reading_id": 1,
   "anomaly_score": -0.5078505082382462,
   "classification": "normal",
   "model_version": "anomaly_v1",
-  "prediction_timestamp": "2026-10-30T00:01:51.495268Z",
-  "inference_latency_ms": 123.2057,
+  "prediction_timestamp": "<UTC timestamp>",
+  "inference_latency_ms": 0.0,
   "explanation": {
     "method": "absolute_deviation_in_standardised_space",
     "anomaly_score": -0.507851,
@@ -115,30 +117,55 @@ Example anomaly response from a live request:
 }
 ```
 
-Example failure response from a live request:
+Illustrative failure response shape:
 
 ```json
 {
-  "prediction_id": "e7404f4b-5373-424f-81af-2ef80d831e9f",
+  "prediction_id": "<generated UUID>",
+  "equipment_id": 1,
+  "reading_id": 2,
   "predicted_class": 0,
   "failure_probability": 0.005,
   "model_version": "failure_v1",
-  "prediction_timestamp": "2026-10-30T00:01:51.550841Z",
-  "inference_latency_ms": 49.3232
+  "prediction_timestamp": "<UTC timestamp>",
+  "inference_latency_ms": 0.0
 }
 ```
 
-Prediction logs record outcome, prediction ID, model name/version, timestamp, and inference latency. Sensor payloads are not logged. This milestone does not persist prediction history; SQL storage is planned for Milestone 3. The API test suite uses FastAPI `TestClient`; run it with:
+Prediction logs record outcome, prediction ID, equipment and reading IDs, model name/version, timestamp, and inference latency. Sensor payloads are not logged. Both prediction endpoints save the observation and result in one database transaction; database failures return HTTP 503 and roll back the complete write. Failed model inference also rolls back the reading and equipment registration created for that request.
+
+## SQLite database and history
+
+The default database is `predictive_maintenance.db` in the project root. Set `DATABASE_URL` to change it, for example `sqlite:///./local.db` (relative paths resolve from the project root). SQLite foreign-key enforcement is enabled. Startup creates missing tables with SQLAlchemy metadata; to initialize explicitly, run `python -m src.database.init_db`. This creates the schema, but it does not migrate existing tables.
+
+| Table | Contents and relationships |
+| --- | --- |
+| `equipment` | Registered name, AI4I product `Type` (L/M/H), optional location, creation time. |
+| `sensor_readings` | Equipment FK, timestamp, all six raw model fields, and source. |
+| `predictions` | Equipment and reading FKs, model version, model-specific output, latency, timestamp. Anomaly columns are null for failure rows and failure probability is null for anomaly rows. |
+| `monitoring_reports` | Reserved report storage schema; no drift calculation or monitoring endpoint is implemented in this milestone. |
+
+Relationships are Equipment 1-to-many SensorReadings and Predictions, and SensorReading 1-to-many Predictions. Foreign keys, range/result consistency constraints, and query indexes are defined in `src/database/models.py`.
+
+| Method and path | Behavior |
+| --- | --- |
+| `GET /equipment` | List registered equipment (`limit`, `offset`). |
+| `GET /equipment/{equipment_id}/history` | Readings with saved predictions (`limit`, `offset`). |
+| `GET /predictions/{prediction_id}` | Retrieve one persisted prediction. |
+
+Historical SQL helpers are in `src/database/repository.py`: latest readings per equipment, predictions in a date range, most frequently anomaly-flagged equipment, average anomaly score by equipment, counts by model version, and average/nearest-rank P95 inference latency. They query stored records and are reusable by later reporting code; no statistics endpoint is included here.
+
+The API test suite uses FastAPI `TestClient` and a fresh temporary SQLite database per test. Run it with:
 
 ```powershell
 python -m pytest -q
 ```
 
-Milestone 2 verification: **20 passed** (15 API tests and five Milestone 1 tests), with no TestClient deprecation warning after declaring Starlette's recommended `httpx2` dependency. `pip check` reports no broken requirements. The independent audit also verified partial model availability, direct-vs-API prediction equivalence, inference-error sanitization, and clean 422 responses for NaN and infinity inputs. A live Uvicorn run returned 200 for health, readiness, both predictions, Swagger UI, and OpenAPI; invalid inputs returned 422.
+Milestone 2 verification: **20 passed** (15 API tests and five Milestone 1 tests), with no TestClient deprecation warning after declaring Starlette's recommended `httpx2` dependency. Milestone 3 verification: **26 passed** (including schema, query, transaction, API persistence, restart, and readiness outage/recovery tests). These are test-suite results from the current implementation; the exact final command output is recorded in `verification-report.md`.
 
 ## Current scope and limitations
 
-- Implemented: local CSV ingestion and validation, leakage-aware preprocessing/splitting, Isolation Forest with score cutoff and statistical comparison, Logistic Regression baseline, Random Forest comparison, class-imbalance weighting, held-out evaluation, metadata/artifact persistence, artifact reload, FastAPI health/readiness and inference endpoints, request validation, model compatibility checks, prediction logging, and Milestone 1/2 tests.
-- Not implemented yet: SQL persistence, operational/data-drift monitoring, Docker deployment, or dashboard. These belong to later milestones.
+- Implemented: local CSV ingestion and validation, leakage-aware preprocessing/splitting, Isolation Forest with score cutoff and statistical comparison, Logistic Regression baseline, Random Forest comparison, class-imbalance weighting, held-out evaluation, metadata/artifact persistence, artifact reload, FastAPI health/readiness and inference endpoints, request validation, model compatibility checks, SQLite persistence and history endpoints, historical SQL helpers, and Milestone 1–3 tests.
+- Not implemented yet: operational/data-drift monitoring, Docker deployment, or dashboard. These belong to later milestones.
 - No time-series forecasting or calibrated failure probability is claimed. Random Forest `predict_proba` is an estimator score and has not been separately calibrated.
 - Dataset values are synthetic and may not represent actual sensor distributions, failure prevalence, or operational costs.

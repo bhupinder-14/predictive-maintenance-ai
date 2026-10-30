@@ -33,16 +33,35 @@ class PredictionService:
     def __init__(self, registry: ModelRegistry) -> None:
         self.registry = registry
 
-    def predict_anomaly(self, observation: SensorObservation) -> AnomalyPredictionResponse:
-        return self._predict("anomaly", observation)
+    def predict_anomaly(
+        self,
+        observation: SensorObservation,
+        *,
+        equipment_id: int,
+        reading_id: int,
+    ) -> AnomalyPredictionResponse:
+        return self._predict(
+            "anomaly", observation, equipment_id=equipment_id, reading_id=reading_id
+        )
 
-    def predict_failure(self, observation: SensorObservation) -> FailurePredictionResponse:
-        return self._predict("failure", observation)
+    def predict_failure(
+        self,
+        observation: SensorObservation,
+        *,
+        equipment_id: int,
+        reading_id: int,
+    ) -> FailurePredictionResponse:
+        return self._predict(
+            "failure", observation, equipment_id=equipment_id, reading_id=reading_id
+        )
 
     def _predict(
         self,
         model_name: str,
         observation: SensorObservation,
+        *,
+        equipment_id: int,
+        reading_id: int,
     ) -> AnomalyPredictionResponse | FailurePredictionResponse:
         prediction_id = uuid4()
         started = perf_counter()
@@ -60,6 +79,8 @@ class PredictionService:
                 timestamp = datetime.now(timezone.utc)
                 response = AnomalyPredictionResponse(
                     prediction_id=prediction_id,
+                    equipment_id=equipment_id,
+                    reading_id=reading_id,
                     anomaly_score=result.anomaly_score,
                     classification="anomaly" if result.is_anomaly else "normal",
                     model_version=model_version,
@@ -75,6 +96,8 @@ class PredictionService:
                 timestamp = datetime.now(timezone.utc)
                 response = FailurePredictionResponse(
                     prediction_id=prediction_id,
+                    equipment_id=equipment_id,
+                    reading_id=reading_id,
                     predicted_class=result.predicted_class,
                     failure_probability=result.failure_probability,
                     model_version=model_version,
@@ -108,7 +131,7 @@ class PredictionService:
             raise PredictionExecutionError("Model inference failed") from exc
 
         logger.info(
-            "Prediction outcome=success prediction_id=%s model=%s model_version=%s "
+            "Prediction outcome=inference_complete prediction_id=%s model=%s model_version=%s "
             "timestamp=%s latency_ms=%.3f",
             response.prediction_id,
             model_name,

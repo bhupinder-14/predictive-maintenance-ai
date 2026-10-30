@@ -8,7 +8,7 @@ from shutil import copy2
 from fastapi.testclient import TestClient
 import pytest
 
-from src.api.main import create_app
+from src.api.main import create_app as _create_app
 from src.api.schemas import SensorObservation
 from src.anomaly_model import predict_anomaly
 from src.failure_model import predict_failure
@@ -17,6 +17,20 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MODEL_DIR = PROJECT_ROOT / "models"
+_ACTIVE_TEST_DATABASE: Path | None = None
+
+
+@pytest.fixture(autouse=True)
+def isolated_test_database(tmp_path: Path) -> None:
+    """Keep every API test on a fresh SQLite file outside the project tree."""
+    global _ACTIVE_TEST_DATABASE
+    _ACTIVE_TEST_DATABASE = tmp_path / "api-test.sqlite3"
+
+
+def create_app(model_directory=None, **kwargs):
+    assert _ACTIVE_TEST_DATABASE is not None
+    kwargs.setdefault("database_url", f"sqlite:///{_ACTIVE_TEST_DATABASE.as_posix()}")
+    return _create_app(model_directory, **kwargs)
 
 VALID_OBSERVATION = {
     "Type": "M",
@@ -39,6 +53,7 @@ def test_health_and_readiness_with_saved_models() -> None:
     assert ready.json() == {
         "status": "ready",
         "models": {"anomaly": True, "failure": True},
+        "database": True,
     }
 
 
@@ -55,6 +70,9 @@ def test_swagger_ui_and_openapi_document_all_milestone_two_routes() -> None:
         "/ready",
         "/predict/anomaly",
         "/predict/failure",
+        "/equipment",
+        "/equipment/{equipment_id}/history",
+        "/predictions/{prediction_id}",
     }
 
 
@@ -65,6 +83,8 @@ def test_valid_anomaly_request_returns_documented_response() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["prediction_id"]
+    assert body["equipment_id"] > 0
+    assert body["reading_id"] > 0
     assert body["model_version"] == "anomaly_v1"
     assert body["classification"] in {"normal", "anomaly"}
     assert isinstance(body["anomaly_score"], float)
@@ -82,6 +102,8 @@ def test_valid_failure_request_returns_probability_and_class() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["prediction_id"]
+    assert body["equipment_id"] > 0
+    assert body["reading_id"] > 0
     assert body["model_version"] == "failure_v1"
     assert body["predicted_class"] in (0, 1)
     assert 0 <= body["failure_probability"] <= 1
@@ -188,6 +210,7 @@ def test_missing_model_artifacts_keep_health_safe_and_readiness_unavailable(tmp_
     assert ready.json() == {
         "status": "not_ready",
         "models": {"anomaly": False, "failure": False},
+        "database": True,
     }
     assert prediction.status_code == 503
     assert prediction.json()["detail"] == "Anomaly model is unavailable"

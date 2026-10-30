@@ -17,6 +17,8 @@ from .config import get_model_directory
 from .model_registry import ArtifactLoader, ModelRegistry
 from .prediction_service import PredictionService
 from .routes import router
+from src.database.manager import Database
+from src.database.prediction_workflow import PredictionWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,7 @@ def create_app(
     model_directory: Path | None = None,
     *,
     artifact_loader: ArtifactLoader | None = None,
+    database_url: str | None = None,
 ) -> FastAPI:
     """Create the API with configurable artifact location for deployment/tests."""
     _configure_api_logging()
@@ -46,19 +49,39 @@ def create_app(
     if artifact_loader is not None:
         registry_kwargs["artifact_loader"] = artifact_loader
     registry = ModelRegistry(model_directory or get_model_directory(), **registry_kwargs)
+    database = Database(database_url)
+    prediction_service = PredictionService(registry)
+    prediction_workflow = PredictionWorkflow(database, prediction_service)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         # Load once when the process starts. Keep the server alive if an
         # artifact is missing so health/readiness can explain the state safely.
         registry.load_all()
+        try:
+            database.initialize()
+        except Exception as exc:
+            logger.error(
+                "Database initialization failed error_type=%s",
+                type(exc).__name__,
+            )
         application.state.model_registry = registry
-        application.state.prediction_service = PredictionService(registry)
-        if registry.is_ready:
-            logger.info("Prediction API ready with both model artifacts")
+        application.state.database = database
+        application.state.database_ready = database.initialized
+        application.state.prediction_service = prediction_service
+        application.state.prediction_workflow = prediction_workflow
+        if registry.is_ready and database.initialized:
+            logger.info("Prediction API ready with both model artifacts and database")
         else:
-            logger.error("Prediction API started with unavailable models: %s", registry.readiness)
-        yield
+            logger.error(
+                "Prediction API started with incomplete readiness models=%s database=%s",
+                registry.readiness,
+                database.initialized,
+            )
+        try:
+            yield
+        finally:
+            database.dispose()
 
     application = FastAPI(
         title="Predictive Maintenance Prediction API",
@@ -91,7 +114,10 @@ def create_app(
         )
 
     application.state.model_registry = registry
-    application.state.prediction_service = PredictionService(registry)
+    application.state.database = database
+    application.state.database_ready = False
+    application.state.prediction_service = prediction_service
+    application.state.prediction_workflow = prediction_workflow
     application.include_router(router)
     return application
 
