@@ -145,6 +145,30 @@ Deliverables
 - Initial API tests and documented startup commands.
 Milestone completion condition: You can start the API, open its interactive documentation, submit a valid sensor observation, receive a prediction, and verify that invalid requests are handled safely.
 
+### Milestone 2 implementation status (verified 2026-10-30)
+
+- [x] Modular FastAPI app, routes, Pydantic schemas, artifact registry, compatibility checks, and inference service added under `src/api/`.
+- [x] Both existing `anomaly_v1` and `failure_v1` artifact bundles load once during application startup; no training occurs during startup or inference. Missing/incompatible bundles leave `/health` available and make `/ready` report HTTP 503.
+- [x] `/health`, `/ready`, `/predict/anomaly`, and `/predict/failure` are implemented and documented in `README.md`.
+- [x] Requests require the six trained raw features, reject missing/extra fields, reject invalid types and non-numeric sensor inputs, and enforce documented sensor value ranges.
+- [x] Prediction responses include IDs, model versions, UTC timestamps, and inference latency. Anomaly output includes a non-probabilistic score and explanation; failure output includes the row-level class and the estimator probability estimate.
+- [x] Tests cover valid requests, invalid/missing fields, invalid types and ranges, model loading and compatibility errors, health/readiness, and Swagger/OpenAPI.
+- [x] Initial verification `python -m pytest -q`: 15 passed (five Milestone 1 tests plus ten API tests). The audit identified a NaN error-serialization bug and Starlette's deprecated legacy `httpx` TestClient path; both were corrected and reverified below.
+- [x] Live Uvicorn verification: both models loaded; health, readiness, both predictions, `/docs`, and `/openapi.json` returned 200; an invalid request returned 422.
+
+Start the service with `python -m uvicorn src.api.main:app --host 127.0.0.1 --port 8000`, then open `http://127.0.0.1:8000/docs`. SQL persistence and history remain Milestone 3 work.
+
+### Independent Milestone 2 audit follow-up (2026-10-30)
+
+- [x] Independently exercised both-missing and partial-artifact availability. With only the anomaly bundle present, `/health` returned 200, `/ready` returned 503 with per-model status, the anomaly route returned 200, and the failure route returned 503.
+- [x] Compared direct `predict_anomaly` and `predict_failure` outputs against API responses for the same request; anomaly score/class and failure class/probability matched.
+- [x] Verified missing fields, extra fields, bad types, invalid Type, empty body, out-of-range readings, NaN, and positive/negative infinity return HTTP 422 without exposing input values or stack traces. A custom 422 handler was added after NaN exposed a serialization failure in the default validation handler.
+- [x] Forced an inference exception; API returned sanitized HTTP 500 without internal path or traceback. Incompatible metadata remains unavailable and produces HTTP 503.
+- [x] Updated the TestClient dependency from `httpx` to Starlette's recommended `httpx2`. Final verification: `python -m pytest -v` passed 20 tests with no warning; `python -m pip check` reported no broken requirements.
+- [x] Verified empty body and JSON requests, NaN, positive/negative infinity, impossible ranges, and extra fields all return safe HTTP 422 responses.
+- [x] Verified each partial availability direction: anomaly-only serves anomaly and returns 503 for failure; failure-only serves failure and returns 503 for anomaly. `/ready` reports the loaded-model map in both cases.
+- [x] Verified inference exceptions return sanitized HTTP 500, and direct saved-model predictions match API score, class, and probability for identical input.
+
 Milestone 3: SQL Database and Prediction History
 Goal: Persist sensor readings, prediction results, equipment information, and monitoring reports so the application maintains a usable history across restarts.
 

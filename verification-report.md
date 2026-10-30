@@ -69,4 +69,31 @@ This is row-level failure classification, not future-failure forecasting. The Ra
 - `models/failure_v1_metadata.json`
 - `models/failure_v1_evaluation.json`
 
-Artifact files are git-ignored as model outputs; rerun the training commands to regenerate them. Dataset and model limitations are documented in `README.md` and `CHECKLIST.md`. This report verifies Milestone 1 only; it makes no completion claim for later milestones.
+Artifact files are git-ignored as model outputs; rerun the training commands to regenerate them. Dataset and model limitations are documented in `README.md` and `CHECKLIST.md`.
+
+## Milestone 2 verification (2026-10-30)
+
+Implemented a modular service under `src/api/`: configuration, Pydantic schemas, artifact registry/compatibility validation, prediction orchestration, route handlers, and an ASGI application factory. The existing Milestone 1 training and artifact files were preserved.
+
+The existing `anomaly_v1` and `failure_v1` artifact bundles loaded during the FastAPI startup lifespan. Compatibility checks validated each artifact version, six-column raw input schema, transformed metadata feature list, estimator input width, and required model interface. The service does not retrain. Missing artifacts, loader exceptions, and incompatible schemas leave health available while readiness reports HTTP 503; model-specific inference returns a sanitized HTTP 503.
+
+Live verification command:
+
+```powershell
+python -m uvicorn src.api.main:app --host 127.0.0.1 --port 8000
+```
+
+Observed results: `/health`, `/ready`, `/predict/anomaly`, `/predict/failure`, `/docs`, and `/openapi.json` returned HTTP 200 with the real artifacts loaded. A malformed Type request returned HTTP 422. A second live request confirmed the prediction event logger recorded prediction ID, model version, UTC timestamp, outcome, and latency without logging sensor values. The first valid observation produced anomaly score −0.5078505082 (normal) and failure class 0 with Random Forest probability estimate 0.005. These are examples for that input, not general performance metrics.
+
+Initial full test command `python -m pytest -v`: **15 passed** (10 API tests and 5 Milestone 1 tests). The suite initially emitted a Starlette deprecation warning because `httpx` was installed without Starlette's recommended `httpx2` TestClient dependency. The dependency was updated to `httpx2>=2.0`, and the final audit rerun is recorded below.
+
+The API accepts only `Type` and the five trained sensor features. It rejects failure labels, identifiers, unknown fields, missing fields, nonnumeric sensor values, invalid Type values, and values outside the documented bounds. Anomaly scores remain distinct from failure probability; the failure response's Random Forest probability estimate is not calibrated. No database, persistence, monitoring, deployment, or dashboard functionality was added; those remain later milestones.
+
+### Independent acceptance audit follow-up
+
+- The audit found that the default FastAPI validation error handler attempted to serialize a NaN input value, causing an exception instead of returning a 422 response. A narrow custom handler now omits raw input values from validation errors. Regression coverage confirms empty body/object, NaN, positive and negative infinity, extra fields, invalid field types/Type, and impossible sensor ranges return HTTP 422.
+- Both partial model states were exercised using isolated temporary directories: anomaly-only and failure-only. Each available endpoint returned 200, the unavailable endpoint returned 503, `/health` remained 200, and `/ready` returned 503 with correct per-model status. Both-missing artifacts, incompatible metadata, and loader exceptions were also covered.
+- Direct predictions from saved Milestone 1 artifacts matched API anomaly score/class and failure class/probability for identical input. A forced inference exception returned sanitized HTTP 500 without path or traceback in the response.
+- Current Starlette TestClient code deprecates the legacy `httpx` client and recommends `httpx2`; `requirements.txt` now declares `httpx2>=2.0`. With installed `httpx2` 2.16.0, the warning no longer appears.
+- Final `python -m pytest -v`: **20 passed** (15 API cases and 5 Milestone 1 tests). Final `python -m pip check`: no broken requirements.
+- After the validation-handler and TestClient dependency changes, Uvicorn was started again with both artifacts. `/health`, `/ready`, both prediction routes, `/docs`, and `/openapi.json` returned 200; a live NaN request returned 422. Prediction-event logs included IDs, versions, timestamps, outcomes, and latency. No Milestone 3 work was started.
