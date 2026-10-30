@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from src.config import LOG_LEVEL
+from src.config import DRIFT_REFERENCE_PATH, LOG_LEVEL, METRICS_WINDOW_SECONDS
 
 from .config import get_model_directory
 from .model_registry import ArtifactLoader, ModelRegistry
@@ -19,6 +19,8 @@ from .prediction_service import PredictionService
 from .routes import router
 from src.database.manager import Database
 from src.database.prediction_workflow import PredictionWorkflow
+from src.monitoring.drift import DriftDetector
+from src.monitoring.metrics import OperationalMetrics, RequestMetricsMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,7 @@ def create_app(
     *,
     artifact_loader: ArtifactLoader | None = None,
     database_url: str | None = None,
+    drift_reference_path: Path | None = None,
 ) -> FastAPI:
     """Create the API with configurable artifact location for deployment/tests."""
     _configure_api_logging()
@@ -52,6 +55,8 @@ def create_app(
     database = Database(database_url)
     prediction_service = PredictionService(registry)
     prediction_workflow = PredictionWorkflow(database, prediction_service)
+    operational_metrics = OperationalMetrics(window_seconds=METRICS_WINDOW_SECONDS)
+    reference_path = drift_reference_path or DRIFT_REFERENCE_PATH
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -65,11 +70,20 @@ def create_app(
                 "Database initialization failed error_type=%s",
                 type(exc).__name__,
             )
+        drift_detector = None
+        try:
+            drift_detector = DriftDetector.load(reference_path)
+        except Exception as exc:
+            # Drift-reference failure must not prevent existing inference routes
+            # from starting; the drift endpoint reports a safe 503 instead.
+            logger.error("Drift reference unavailable error_type=%s", type(exc).__name__)
         application.state.model_registry = registry
         application.state.database = database
         application.state.database_ready = database.initialized
         application.state.prediction_service = prediction_service
         application.state.prediction_workflow = prediction_workflow
+        application.state.operational_metrics = operational_metrics
+        application.state.drift_detector = drift_detector
         if registry.is_ready and database.initialized:
             logger.info("Prediction API ready with both model artifacts and database")
         else:
@@ -118,6 +132,12 @@ def create_app(
     application.state.database_ready = False
     application.state.prediction_service = prediction_service
     application.state.prediction_workflow = prediction_workflow
+    application.state.operational_metrics = operational_metrics
+    application.state.drift_detector = None
+    application.add_middleware(
+        RequestMetricsMiddleware,
+        metrics=operational_metrics,
+    )
     application.include_router(router)
     return application
 

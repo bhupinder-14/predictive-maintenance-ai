@@ -57,7 +57,7 @@ def test_health_and_readiness_with_saved_models() -> None:
     }
 
 
-def test_swagger_ui_and_openapi_document_all_milestone_two_routes() -> None:
+def test_swagger_ui_and_openapi_document_all_implemented_routes() -> None:
     with TestClient(create_app(MODEL_DIR)) as client:
         docs = client.get("/docs")
         schema = client.get("/openapi.json")
@@ -73,6 +73,9 @@ def test_swagger_ui_and_openapi_document_all_milestone_two_routes() -> None:
         "/equipment",
         "/equipment/{equipment_id}/history",
         "/predictions/{prediction_id}",
+        "/metrics/summary",
+        "/monitoring/metrics",
+        "/monitoring/drift",
     }
 
 

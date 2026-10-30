@@ -163,3 +163,44 @@ Updated `Database.check_connection()` to execute read-only `SELECT 1` using `eng
 The prior runtime-outage finding was reproduced by an automated test that makes only the readiness probe fail, then removes the failure and checks recovery. It asserts normal readiness is HTTP 200, simulated outage readiness is sanitized HTTP 503, `/health` remains HTTP 200 during the outage, and readiness returns to HTTP 200 after recovery. The existing startup-unavailable test also remains in the suite.
 
 Final command: `.venv\Scripts\python.exe -m pytest -v` → **26 passed in 8.50s**, including all Milestone 1 and 2 tests. `.venv\Scripts\python.exe -m pip check` → **No broken requirements found.** The test apps use isolated pytest temporary SQLite databases. No Milestone 4 work was started.
+
+## Milestone 4 acceptance-gap corrections (2026-10-30; independent audit pending)
+
+The original Milestone 4 implementation introduced in-memory counters and sensor drift checks. This correction adds the missing durable report workflow, metrics compatibility/status summaries, rolling metrics, and a repeatable benchmark. No production model artifacts were retrained or modified. The drift reference was read and regenerated only to a temporary output path for comparison; the checked-in reference was not changed.
+
+### Persisted reports and SQLite upgrade
+
+`MonitoringReport` now stores reference version, batch description, methodology JSON, overall metadata JSON, and complete per-feature results JSON in addition to its existing fields. `POST /monitoring/drift` persists only after a valid batch has been evaluated. It returns the existing response schema; database write failure returns sanitized HTTP 503. Raw sensor batches are not saved. For this non-chronological dataset, window start/end describe the evaluation instant, not a time-series window. The scalar legacy `drift_metric` is left NULL because KS p-values and TVD distances are not comparable as one score.
+
+`GET /monitoring/drift` returns the latest stored report with its report ID and saved metadata, ordered by creation timestamp and then primary key descending. It returns HTTP 404 when no report exists and sanitized HTTP 503 when the database is unavailable. Retrieval does not invoke the drift detector.
+
+`Database.initialize()` applies an idempotent additive SQLite upgrade after `create_all`: it adds nullable report columns and the expected report index when missing. `BEGIN IMMEDIATE` serializes upgrades. Existing rows and the existing database file are preserved. The migration test initialized a legacy-shaped table with a row, verified new columns were added, and verified the row's old values remained intact.
+
+### Operational metrics and benchmark
+
+`GET /metrics/summary` is the SPEC path; `/monitoring/metrics` remains a documented alias. Both return the same schema. Prediction counters are grouped by anomaly/failure family and actual loaded model version. Availability includes sanitized per-model states (`available`, `missing_artifacts`, `incompatible_artifacts`, `load_failed`) and a live database `SELECT 1` result.
+
+Cumulative counters are since process start. `rolling_window` summarizes request counts/statuses/durations, prediction classes/model versions, and prediction errors from the trailing `METRICS_WINDOW_SECONDS` interval (default 300 seconds). A scrape is recorded after its response snapshot and is visible to the next scrape. Both storage modes are process-local and reset after restart.
+
+The repeatable script is `scripts/benchmark_api.py`; command used for the observed run:
+
+```powershell
+python -m scripts.benchmark_api --base-url http://127.0.0.1:62759 --warmup-requests 2 --requests 5 --timeout-seconds 15
+```
+
+It ran against a temporary loopback API process with a temporary SQLite database. It returned exit code 0 and five measured samples per endpoint after two warm-ups. Observed client-side HTTP latency (ms):
+
+| Endpoint | n | p50 | p95 | p99 | Mean | Maximum |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `/predict/anomaly` | 5 | 54.6910 | 56.2352 | 56.4928 | 53.9460 | 56.5572 |
+| `/predict/failure` | 5 | 64.9724 | 74.8343 | 75.9489 | 67.1092 | 76.2275 |
+
+These are one local run, not a service-level guarantee. Results depend on hardware, network, server settings, and database state. The benchmark has no universal pass/fail latency threshold; its prediction requests perform normal persistence into the temporary database.
+
+### Executed verification
+
+Final complete command: `.venv\Scripts\python.exe -m pytest -p no:cacheprovider -v` → **48 passed in 19.86s**. This run covered 8 acceptance-gap cases, 4 benchmark cases, 15 API cases, 6 database cases, 8 Milestone 1/pipeline cases, and 7 existing monitoring/drift cases. Tests use `tmp_path` databases and output artifacts; the benchmark test uses mocks, while the measured run used a temporary local server/database.
+
+`.venv\Scripts\python.exe -m pip check` → **No broken requirements found.** `git diff --check` → **No errors** (Git reports line-ending conversion warnings for existing CRLF/LF worktree files).
+
+Production model artifacts and the checked-in drift reference were not modified. Existing direct saved-model/API prediction comparisons and Milestones 1–3 regression tests passed. No Milestone 5 work was started. Independent acceptance audit remains pending; no Milestone 4 acceptance is claimed.

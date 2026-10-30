@@ -73,6 +73,36 @@ class ModelRegistry:
         return {name: name in self.artifacts for name in EXPECTED_MODEL_VERSIONS}
 
     @property
+    def operational_status(self) -> dict[str, dict[str, str | bool | None]]:
+        """Return sanitized availability and actual loaded versions by model family."""
+        status: dict[str, dict[str, str | bool | None]] = {}
+        for name in EXPECTED_MODEL_VERSIONS:
+            artifact = self.artifacts.get(name)
+            if artifact is not None:
+                status[name] = {
+                    "available": True,
+                    "status": "available",
+                    "model_version": artifact.metadata.model_version,
+                }
+                continue
+            error_type = self.load_errors.get(name, "NotLoaded")
+            if error_type == "FileNotFoundError":
+                label = "missing_artifacts"
+            elif error_type in {
+                "ModelCompatibilityError", "ValueError", "TypeError", "KeyError",
+                "JSONDecodeError",
+            }:
+                label = "incompatible_artifacts"
+            else:
+                label = "load_failed"
+            status[name] = {
+                "available": False,
+                "status": label,
+                "model_version": None,
+            }
+        return status
+
+    @property
     def is_ready(self) -> bool:
         return all(self.readiness.values())
 

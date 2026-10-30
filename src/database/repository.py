@@ -246,3 +246,12 @@ class PredictionRepository:
         session.add(report)
         session.flush()
         return report
+
+    @staticmethod
+    def latest_monitoring_report(session: Session) -> MonitoringReport | None:
+        """Return the newest report, using its primary key to break timestamp ties."""
+        return session.scalar(
+            select(MonitoringReport)
+            .order_by(MonitoringReport.created_at.desc(), MonitoringReport.id.desc())
+            .limit(1)
+        )

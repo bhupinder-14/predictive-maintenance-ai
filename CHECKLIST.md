@@ -364,6 +364,25 @@ Deliverables
 - A documented test report and known limitations.
 Milestone completion condition: The automated tests pass, the application handles documented failure cases safely, and a controlled change in input-data distribution produces an observable drift report.
 
+### Milestone 4 implementation status (awaiting independent acceptance audit)
+
+- [x] Expanded data-pipeline, saved-artifact, deterministic inference, API, database, and operational-monitoring tests without removing earlier coverage.
+- [x] Added thread-safe process-local cumulative and rolling-window request/status/latency counters and separate anomaly/failure prediction outcome and error metrics.
+- [x] Added `GET /metrics/summary` and retained `GET /monitoring/metrics` as an equivalent backward-compatible alias.
+- [x] Exposed actual prediction counts by model family and loaded model version, sanitized model load/availability state, and live database availability.
+- [x] Defined rolling summaries as the trailing configurable `METRICS_WINDOW_SECONDS` (default 300 seconds); cumulative-since-start counters remain separately identified.
+- [x] Added `scripts/benchmark_api.py` with independent anomaly/failure samples, configurable warm-ups and sample count, and p50/p95/p99/mean/max output. The temporary local run and actual measurements are in `verification-report.md`.
+- [x] Generated `data/reference/drift_reference_v1.json` from the actual AI4I training partition only (7,000 rows, seed 42); no validation/test rows, IDs, or targets are drift features.
+- [x] Added sensor-only batch validation and `POST /monitoring/drift`: numeric KS tests (`p < 0.05`), Type total-variation distance (`>= 0.10`), and an insufficient-data response below 20 rows.
+- [x] Persisted complete valid drift reports and added `GET /monitoring/drift` to retrieve the latest report without recalculation; empty history returns 404 and database failures return sanitized 503.
+- [x] Added an idempotent additive SQLite upgrade for existing `monitoring_reports` tables; it preserves existing records and adds report metadata, methodology, batch description, and feature-result JSON columns.
+- [x] Tests exercised similar, numerical-shifted, and categorical-shifted batches, small/invalid batches, missing/incompatible reference artifacts, metrics counters, and concurrent counter updates.
+- [x] Added tests for report persistence/restart/latest ordering, legacy SQLite upgrade, write failure rollback behavior, no-report behavior, metrics aliases/version/availability/window summaries, and benchmark CLI/percentiles/warm-up/error handling.
+- [x] Full test suite: **48 passed**. `pip check`: no broken requirements. `git diff --check`: no errors.
+- [ ] Independent Milestone 4 acceptance audit (pending; do not begin Milestone 5).
+
+Drift request batches are not persisted; completed reports are. No Docker, deployment, dashboard, or Milestone 5 work is included.
+
 Milestone 5: Docker, Deployment, and Documentation
 Goal: Make the project reproducible on another machine, without relying on undocumented local files, manual setup tricks, or your development environment.
 5.1 Containerize the application

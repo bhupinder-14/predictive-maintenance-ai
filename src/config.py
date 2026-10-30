@@ -84,3 +84,23 @@ DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{PROJECT_ROOT / 'predi
 # ---------------------------------------------------------------------------
 APP_ENV: str = os.getenv("APP_ENV", "development")
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+
+# ---------------------------------------------------------------------------
+# Milestone 4 drift monitoring
+# ---------------------------------------------------------------------------
+_drift_reference_path = Path(
+    os.getenv("DRIFT_REFERENCE_PATH", "data/reference/drift_reference_v1.json")
+)
+DRIFT_REFERENCE_PATH = (
+    _drift_reference_path.resolve()
+    if _drift_reference_path.is_absolute()
+    else (PROJECT_ROOT / _drift_reference_path).resolve()
+)
+DRIFT_KS_ALPHA = float(os.getenv("DRIFT_KS_ALPHA", "0.05"))
+DRIFT_CATEGORICAL_TVD_THRESHOLD = float(
+    os.getenv("DRIFT_CATEGORICAL_TVD_THRESHOLD", "0.10")
+)
+DRIFT_MINIMUM_SAMPLE_SIZE = int(os.getenv("DRIFT_MINIMUM_SAMPLE_SIZE", "20"))
+METRICS_WINDOW_SECONDS = int(os.getenv("METRICS_WINDOW_SECONDS", "300"))
+if METRICS_WINDOW_SECONDS < 1:
+    raise ValueError("METRICS_WINDOW_SECONDS must be at least 1")

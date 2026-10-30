@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -13,12 +14,18 @@ from src.api.schemas import (
     EquipmentHistoryResponse,
     EquipmentResponse,
     FailurePredictionResponse,
+    PersistedDriftReportResponse,
     PredictionRecordResponse,
     SensorObservation,
 )
 
 from .manager import Database
-from .presenters import present_equipment, present_history, present_prediction
+from .presenters import (
+    present_equipment,
+    present_history,
+    present_monitoring_report,
+    present_prediction,
+)
 from .repository import (
     EquipmentNotFoundError,
     PredictionNotFoundError,
@@ -164,6 +171,27 @@ class PredictionWorkflow:
         return self._read(lambda session: present_prediction(
             self.repository.get_prediction(session, prediction_id)
         ))
+
+    def persist_drift_report(self, **fields: Any) -> int:
+        """Save one complete drift report atomically and return its database ID."""
+        if not self.database.initialized:
+            raise DatabaseUnavailableError("Database is unavailable")
+        try:
+            with self.database.session() as session, session.begin():
+                report = self.repository.create_monitoring_report(session, **fields)
+                report_id = report.id
+            return report_id
+        except SQLAlchemyError as exc:
+            logger.error("Drift report persistence failed error_type=%s", type(exc).__name__)
+            raise PersistenceError("Drift report could not be persisted") from exc
+
+    def latest_drift_report(self) -> PersistedDriftReportResponse | None:
+        """Return the newest persisted report, or ``None`` when history is empty."""
+        def load(session):
+            report = self.repository.latest_monitoring_report(session)
+            return present_monitoring_report(report) if report is not None else None
+
+        return self._read(load)
 
     def _read(self, operation):
         if not self.database.initialized:

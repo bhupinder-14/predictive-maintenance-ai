@@ -135,7 +135,9 @@ Required endpoints:
 - GET /equipment/{equipment_id}/history — retrieve historical readings and predictions
 - GET /predictions/{prediction_id} — retrieve a prediction record
 - GET /metrics/summary — retrieve operational metrics and prediction summaries
+- GET /monitoring/metrics — backward-compatible alias for `/metrics/summary`
 - GET /monitoring/drift — retrieve the latest available data-drift report
+- POST /monitoring/drift — evaluate and persist a validated sensor batch
 
 Use Pydantic request and response schemas.
 
@@ -186,7 +188,7 @@ For data drift, compare recent input data with a documented reference dataset us
 
 Document the chosen drift metric, feature selection, sample-size limitations, and alert threshold.
 
-Store drift reports in the database and expose them through the monitoring endpoint.
+Store complete drift reports in the database, including the evaluation/batch window, reference version, methodology, overall metadata, and per-feature results. Expose the latest saved report through `GET /monitoring/drift`; do not recompute a report during retrieval. `POST /monitoring/drift` evaluates and saves a new valid batch.
 
 Do not claim that data drift proves model degradation. Do not claim to measure current model accuracy without appropriate ground-truth outcomes.
 

@@ -13,6 +13,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    JSON,
     String,
     UniqueConstraint,
     func,
@@ -129,6 +130,11 @@ class MonitoringReport(Base):
     window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     drift_metric: Mapped[float | None] = mapped_column(Float)
     drift_status: Mapped[str] = mapped_column(String(40), nullable=False)
+    reference_version: Mapped[str | None] = mapped_column(String(80))
+    batch_description: Mapped[str | None] = mapped_column(String(255))
+    methodology: Mapped[dict | None] = mapped_column(JSON)
+    report_metadata: Mapped[dict | None] = mapped_column(JSON)
+    feature_results: Mapped[list | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

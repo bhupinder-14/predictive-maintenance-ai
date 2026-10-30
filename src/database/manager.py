@@ -15,6 +15,7 @@ from sqlalchemy.pool import StaticPool
 from src.config import DATABASE_URL, PROJECT_ROOT
 
 from .models import Base
+from .migrations import upgrade_sqlite_schema
 
 
 class Database:
@@ -55,6 +56,7 @@ class Database:
 
         try:
             Base.metadata.create_all(engine)
+            upgrade_sqlite_schema(engine)
             self.engine = engine
             self.session_factory = sessionmaker(
                 bind=engine,

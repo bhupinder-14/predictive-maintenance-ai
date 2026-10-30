@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import (
@@ -17,8 +17,8 @@ from pydantic import (
 )
 
 
-class SensorObservation(BaseModel):
-    """One observation using only the raw features accepted by the models."""
+class SensorFeatures(BaseModel):
+    """The six supported raw AI4I sensor features, with no targets or IDs."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -38,6 +38,21 @@ class SensorObservation(BaseModel):
     tool_wear_min: Annotated[
         float, Field(alias="Tool wear [min]", strict=True, ge=0, le=300)
     ]
+    def as_model_features(self) -> dict[str, str | float]:
+        """Return only the exact raw feature names used by trained models."""
+        return {
+            "Type": self.Type,
+            "Air temperature [K]": self.air_temperature_k,
+            "Process temperature [K]": self.process_temperature_k,
+            "Rotational speed [rpm]": self.rotational_speed_rpm,
+            "Torque [Nm]": self.torque_nm,
+            "Tool wear [min]": self.tool_wear_min,
+        }
+
+
+class SensorObservation(SensorFeatures):
+    """One inference observation plus optional persistence metadata."""
+
     equipment_id: PositiveInt | None = None
     equipment_name: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
@@ -57,16 +72,116 @@ class SensorObservation(BaseModel):
             )
         return self
 
-    def as_model_features(self) -> dict[str, str | float]:
-        """Return values under the exact raw column names expected by preprocessing."""
-        return {
-            "Type": self.Type,
-            "Air temperature [K]": self.air_temperature_k,
-            "Process temperature [K]": self.process_temperature_k,
-            "Rotational speed [rpm]": self.rotational_speed_rpm,
-            "Torque [Nm]": self.torque_nm,
-            "Tool wear [min]": self.tool_wear_min,
-        }
+
+
+class DriftRequest(BaseModel):
+    """A bounded batch containing only supported sensor features."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    observations: Annotated[list[SensorFeatures], Field(min_length=1, max_length=10_000)]
+
+
+class FeatureDriftResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    feature_name: str
+    method: Literal["kolmogorov_smirnov_two_sample", "total_variation_distance"]
+    statistic: float | None
+    p_value: float | None
+    threshold: float
+    threshold_kind: Literal["p_value_significance_level", "distance_threshold"]
+    drift_detected: bool | None
+    reference_sample_size: int
+    current_sample_size: int
+
+
+class DriftReportResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reference_version: str
+    generated_at: datetime
+    reference_sample_size: int
+    current_sample_size: int
+    minimum_sample_size: int
+    overall_status: Literal["drift_detected", "no_drift_detected", "insufficient_data"]
+    features: list[FeatureDriftResult]
+    interpretation: str
+
+
+class PersistedDriftReportResponse(DriftReportResponse):
+    """Latest saved drift result, including database and batch metadata."""
+
+    report_id: int
+    created_at: datetime
+    window_start: datetime
+    window_end: datetime
+    batch_description: str
+    reference_version: str
+    methodology: dict[str, Any]
+    report_metadata: dict[str, Any]
+    model_version: str
+
+
+class EndpointRequestMetrics(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requests: int
+    successful: int
+    failed: int
+    status_codes: dict[str, int]
+    duration_ms: dict[str, float]
+
+
+class RequestMetricsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total: int
+    successful: int
+    failed: int
+    status_codes: dict[str, int]
+    by_endpoint: dict[str, EndpointRequestMetrics]
+    duration_ms: dict[str, float]
+
+
+class PredictionMetricsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    anomaly: dict[str, Any]
+    failure: dict[str, Any]
+    errors: dict[str, Any]
+
+
+class RuntimeMetricsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    uptime_seconds: float
+    metrics_storage: Literal["in_memory_process_local"]
+
+
+class AvailabilityMetricsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    models: dict[str, dict[str, str | bool | None]]
+    database_available: bool | None
+
+
+class RollingMetricsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    window_seconds: int
+    requests: RequestMetricsResponse
+    predictions: PredictionMetricsResponse
+
+
+class OperationalMetricsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requests: RequestMetricsResponse
+    predictions: PredictionMetricsResponse
+    runtime: RuntimeMetricsResponse
+    availability: AvailabilityMetricsResponse
+    rolling_window: RollingMetricsResponse
 
 
 class SuspiciousFeature(BaseModel):
