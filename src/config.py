@@ -84,6 +84,8 @@ DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{PROJECT_ROOT / 'predi
 # ---------------------------------------------------------------------------
 APP_ENV: str = os.getenv("APP_ENV", "development")
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+if LOG_LEVEL.upper() not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+    raise ValueError("LOG_LEVEL must be DEBUG, INFO, WARNING, ERROR, or CRITICAL")
 
 # ---------------------------------------------------------------------------
 # Milestone 4 drift monitoring
@@ -102,5 +104,11 @@ DRIFT_CATEGORICAL_TVD_THRESHOLD = float(
 )
 DRIFT_MINIMUM_SAMPLE_SIZE = int(os.getenv("DRIFT_MINIMUM_SAMPLE_SIZE", "20"))
 METRICS_WINDOW_SECONDS = int(os.getenv("METRICS_WINDOW_SECONDS", "300"))
+if not 0 < DRIFT_KS_ALPHA < 1:
+    raise ValueError("DRIFT_KS_ALPHA must be greater than 0 and less than 1")
+if not 0 <= DRIFT_CATEGORICAL_TVD_THRESHOLD <= 1:
+    raise ValueError("DRIFT_CATEGORICAL_TVD_THRESHOLD must be between 0 and 1")
+if DRIFT_MINIMUM_SAMPLE_SIZE < 2:
+    raise ValueError("DRIFT_MINIMUM_SAMPLE_SIZE must be at least 2")
 if METRICS_WINDOW_SECONDS < 1:
     raise ValueError("METRICS_WINDOW_SECONDS must be at least 1")

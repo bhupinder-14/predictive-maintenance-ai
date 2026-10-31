@@ -1,6 +1,6 @@
 # Predictive Maintenance & Anomaly Detection AI
 
-Milestones 1–3 are accepted. Milestone 4 monitoring and drift implementation is in place and awaits its independent acceptance audit. Deployment remains future work.
+Milestones 1–4 are accepted. Milestone 5 adds Docker packaging and deployment readiness; it remains subject to independent acceptance.
 
 ## Dataset
 
@@ -20,7 +20,7 @@ Python 3.12 is recommended. The Milestone 1 commands below were run using Python
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 ```
 
 If `py -3.12` is unavailable, install Python 3.12 from python.org and rerun the commands. The current environment used the desktop runtime's Python 3.12.14 executable to create `.venv`; no system security settings were changed.
@@ -34,7 +34,7 @@ python -m scripts.evaluate
 python -m pytest -q
 ```
 
-The training scripts print a data-quality report and save artifacts and JSON evaluation reports under `models/`. Raw data, model artifacts, `.venv`, and the project-local generated files are git-ignored as configured.
+`requirements.txt` contains runtime dependencies. `requirements-dev.txt` adds Pytest and the FastAPI TestClient dependency for local development and testing; Docker installs only `requirements.txt`. The training scripts print a data-quality report and save artifacts and JSON evaluation reports under `models/`. Raw data, generated evaluation reports, other generated model files, `.venv`, and project-local generated files are git-ignored. The six versioned v1 production inference artifacts are explicitly tracked for reproducible deployment despite the broad model-file ignore rules.
 
 ## Pipeline and artifacts
 
@@ -263,9 +263,80 @@ python -m pytest -q
 
 Milestone 2 verification: **20 passed** (15 API tests and five Milestone 1 tests), with no TestClient deprecation warning after declaring Starlette's recommended `httpx2` dependency. Milestone 3 verification: **26 passed** (including schema, query, transaction, API persistence, restart, and readiness outage/recovery tests). These are test-suite results from the current implementation; the exact final command output is recorded in `verification-report.md`.
 
+## Docker deployment
+
+### Prerequisites and quick start
+
+Install Docker Engine or Docker Desktop with Docker Compose support. The image uses the official `python:3.12-slim` base and the runtime dependency set in `requirements.txt`. Build and start the API from the repository root:
+
+The six versioned v1 production inference artifacts and `data/reference/drift_reference_v1.json` are tracked deployment inputs. A clean deployment checkout does not need the raw training CSV or model retraining. Reproducing training is a separate workflow and requires the original `data/raw/ai4i2020.csv`, the training dependencies, and the training commands described above. The Docker build loads the committed model and reference files; it does not train models or generate drift statistics.
+
+```powershell
+Copy-Item .env.example .env
+docker compose up --build -d
+docker compose ps
+docker compose logs -f api
+```
+
+The host API URL defaults to `http://localhost:8000`; Swagger is at `/docs`, OpenAPI at `/openapi.json`, liveness at `/health`, and readiness at `/ready`. Prediction endpoints are `/predict/anomaly` and `/predict/failure`; metrics are at `/metrics/summary` and `/monitoring/metrics`; drift endpoints are `POST` and `GET /monitoring/drift`. The readiness health check requires both model bundles and a working database.
+
+For an API-level deployment smoke check, run this from the host after the container is healthy:
+
+```powershell
+python scripts/verify_deployment.py --base-url http://localhost:8000
+```
+
+This command submits two predictions and a 20-row drift batch, checks equipment listing and reading history, compares each prediction with its saved record, checks stable metrics data across both aliases, and verifies that GET returns the newly persisted drift report. It creates two prediction records and one drift report in the target application's database. Use a disposable database volume for verification rather than a volume containing data you need to preserve.
+
+### Environment configuration
+
+Compose reads optional values from `.env`; `.env.example` contains safe defaults and no secrets. `HOST_PORT` controls the published host port and `APP_PORT` the port inside the container. `DOCKER_DATABASE_URL` defaults to a SQLite file inside the persistent data volume; if overridden, keep the database file under `/var/lib/predictive-maintenance` so it remains persistent. `DATABASE_VOLUME_NAME` selects the named Docker volume. `MODEL_DIR` and `DRIFT_REFERENCE_PATH` default to the immutable artifacts included in the image. `LOG_LEVEL`, `METRICS_WINDOW_SECONDS`, `DRIFT_KS_ALPHA`, `DRIFT_CATEGORICAL_TVD_THRESHOLD`, and `DRIFT_MINIMUM_SAMPLE_SIZE` configure logging and the existing monitoring behavior. Invalid numeric drift thresholds fail clearly during configuration import. Do not place secrets in the image or commit a populated `.env` file.
+
+The container receives no project-directory bind mount. The trained model files and versioned drift-reference JSON are copied into the image. Startup loads them without training or regenerating reference statistics. Database initialization runs on startup and applies the existing additive, idempotent SQLite migration.
+
+### Database persistence and operations
+
+Compose creates the named volume `predictive-maintenance-data` by default and mounts it at `/var/lib/predictive-maintenance`; the SQLite database is stored there. Prediction history and persisted drift reports survive container restart and recreation as long as the volume is retained. Application logs go to stdout/stderr and can be viewed with `docker compose logs -f api`.
+
+The image itself defaults `DATABASE_URL` to `/var/lib/predictive-maintenance/predictive_maintenance.db`, and the image creates that directory with write permission for UID/GID 10001. Compose overrides the URL with its configured volume-backed value. A standalone `docker run` without a mounted volume can write to the container's writable layer, but that database is lost when the container is removed. To retain standalone-run records, mount a named volume at the database directory (the image default URL then uses that mount):
+
+```powershell
+docker volume create predictive-maintenance-data
+docker run --rm -p 8000:8000 `
+  --mount source=predictive-maintenance-data,target=/var/lib/predictive-maintenance `
+  predictive-maintenance-api:local
+```
+
+Override `DATABASE_URL` only if it points to a writable location; for persistence, keep the SQLite file under the mounted directory.
+
+Useful commands:
+
+```powershell
+docker compose up -d                 # Start the service
+docker compose restart api           # Restart; retain the volume
+docker compose stop                  # Stop containers; retain the volume
+docker compose down                  # Remove containers/network; retain the volume
+docker compose up --build -d         # Rebuild and start
+docker compose ps                    # Check container and health status
+docker compose logs --tail 100 api   # Read recent application logs
+```
+
+To explicitly delete stored prediction and monitoring history, remove the named volume after stopping Compose:
+
+```powershell
+docker compose down
+docker volume rm predictive-maintenance-data
+```
+
+**Deleting the database volume permanently deletes prediction history and drift reports.** If `DATABASE_VOLUME_NAME` was customized, substitute that volume name. Restarting or removing containers without `-v` retains the volume; `docker compose down -v` deletes it and must be treated as destructive.
+
+`/health` is a liveness response and remains independent of database connectivity. `/ready` checks that both models loaded and that the database answers a live `SELECT 1`; Compose uses `/ready`, so missing/incompatible models or database failure makes the container unhealthy while the process can remain alive for diagnosis. A process that fails before serving HTTP is reported by Docker as exited/unhealthy according to its exit state and restart policy.
+
+The runtime image runs as UID/GID 10001, uses a read-only root filesystem with a temporary `/tmp`, drops Linux capabilities, and enables `no-new-privileges`. Only the API port is published. This is baseline container hardening, not a security certification: the base tag and minimum-version dependency ranges can change over time, and this milestone did not run a vulnerability scan or produce an SBOM. Docker was unavailable in the implementation environment, so image build, container health, and named-volume recreation still require verification on a host with Docker Engine/Compose. The smoke-check script and complete local test suite are available for that verification.
+
 ## Current scope and limitations
 
-- Implemented: local CSV ingestion and validation, leakage-aware preprocessing/splitting, Isolation Forest with score cutoff and statistical comparison, Logistic Regression baseline, Random Forest comparison, class-imbalance weighting, held-out evaluation, metadata/artifact persistence, artifact reload, FastAPI health/readiness and inference endpoints, request validation, model compatibility checks, SQLite persistence and history endpoints, historical SQL helpers, process-local request/prediction metrics, a training-split-only versioned drift reference, validated drift evaluation, and Milestone 1–4 tests.
-- Not implemented yet: persistent operational metric counters, Docker deployment, or dashboard. Drift reports are persisted; raw drift request batches are not.
+- Implemented: local CSV ingestion and validation, leakage-aware preprocessing/splitting, Isolation Forest with score cutoff and statistical comparison, Logistic Regression baseline, Random Forest comparison, class-imbalance weighting, held-out evaluation, metadata/artifact persistence, artifact reload, FastAPI health/readiness and inference endpoints, request validation, model compatibility checks, SQLite persistence and history endpoints, historical SQL helpers, process-local request/prediction metrics, a training-split-only versioned drift reference, validated drift evaluation, Docker packaging configuration, and Milestone 1–5 implementation work.
+- Not implemented yet: Docker image/container execution verification in this environment and a dashboard. Drift reports are persisted; raw drift request batches are not.
 - No time-series forecasting or calibrated failure probability is claimed. Random Forest `predict_proba` is an estimator score and has not been separately calibrated.
 - Dataset values are synthetic and may not represent actual sensor distributions, failure prevalence, or operational costs.

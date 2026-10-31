@@ -364,7 +364,7 @@ Deliverables
 - A documented test report and known limitations.
 Milestone completion condition: The automated tests pass, the application handles documented failure cases safely, and a controlled change in input-data distribution produces an observable drift report.
 
-### Milestone 4 implementation status (awaiting independent acceptance audit)
+### Milestone 4 status (independently accepted)
 
 - [x] Expanded data-pipeline, saved-artifact, deterministic inference, API, database, and operational-monitoring tests without removing earlier coverage.
 - [x] Added thread-safe process-local cumulative and rolling-window request/status/latency counters and separate anomaly/failure prediction outcome and error metrics.
@@ -379,9 +379,9 @@ Milestone completion condition: The automated tests pass, the application handle
 - [x] Tests exercised similar, numerical-shifted, and categorical-shifted batches, small/invalid batches, missing/incompatible reference artifacts, metrics counters, and concurrent counter updates.
 - [x] Added tests for report persistence/restart/latest ordering, legacy SQLite upgrade, write failure rollback behavior, no-report behavior, metrics aliases/version/availability/window summaries, and benchmark CLI/percentiles/warm-up/error handling.
 - [x] Full test suite: **48 passed**. `pip check`: no broken requirements. `git diff --check`: no errors.
-- [ ] Independent Milestone 4 acceptance audit (pending; do not begin Milestone 5).
+- [x] Independent Milestone 4 acceptance audit passed; Milestone 5 may proceed.
 
-Drift request batches are not persisted; completed reports are. No Docker, deployment, dashboard, or Milestone 5 work is included.
+Drift request batches are not persisted; completed reports are. Milestone 4 is accepted. Milestone 5 deployment verification status is tracked below.
 
 Milestone 5: Docker, Deployment, and Documentation
 Goal: Make the project reproducible on another machine, without relying on undocumented local files, manual setup tricks, or your development environment.
@@ -459,6 +459,30 @@ Deliverables
 - Successful clean-start verification.
 - Optional deployment and documented access instructions.
 Milestone completion condition: Another person can clone the repository, follow the documentation, train the models, start the application, make a prediction, and run the tests without needing undocumented assistance.
+
+### Milestone 5 implementation status (independent acceptance pending)
+
+- [x] Added a Python 3.12 slim runtime Dockerfile, non-root UID/GID, stdout logging defaults, and artifact/source copying.
+- [x] Added `.dockerignore` exclusions for credentials, local databases, virtual environments, caches, tests, and raw/processed data while retaining models and drift reference.
+- [x] Added a single-service Compose setup with configurable ports/runtime settings, persistent named SQLite volume, restart policy, and `/ready` health check.
+- [x] Separated test-only Pytest/TestClient dependencies into `requirements-dev.txt`; Docker installs runtime `requirements.txt` only.
+- [x] Added `scripts/verify_deployment.py` to exercise health/docs, predictions and persisted record equality, equipment listing/history, stable metrics-alias equivalence, and drift report persistence/retrieval.
+- [x] Documented Docker prerequisites, artifact preparation, configuration, volume lifecycle, health semantics, and operational commands.
+- [x] Set a writable image-default SQLite path for UID/GID 10001; Compose overrides it, and standalone `docker run` persistence requires a mounted volume.
+- [x] Strengthened verifier checks for exact prediction IDs/families/results, associated equipment/history entries, stable metrics sections, and persisted drift-report ID/metadata/features.
+- [x] Added automated tests for clear invalid drift configuration and deployment verifier CLI options.
+- [x] Complete local regression suite: **57 passed** in the final gap audit; `pip check` clean; Compose YAML parsed and static path/ownership checks passed.
+- [x] Project-owner manual verification: fresh `docker compose build --pull --no-cache api` succeeded.
+- [x] Project-owner manual verification: Compose deployment started and reached healthy status; `/health`, `/ready`, and `/docs` worked; deployment smoke verifier passed 13/13 checks; both models loaded; container ran as UID/GID 10001:10001 and that user could write to the mounted database volume.
+- [x] Project-owner manual verification: prediction and drift-report records survived Compose container recreation with the named volume; standalone-container predictions survived container removal and recreation with the same named volume.
+- [x] Project-owner manual verification: disposable legacy SQLite migration preserved existing monitoring report ID 17 and its original values, added all five nullable columns and the required index, left the new columns NULL for the legacy row, and passed again after application-container restart. The volume was writable by UID 10001.
+- [x] Targeted readiness tests: `test_health_and_readiness_with_saved_models`, `test_readiness_detects_database_outage_and_recovers`, and `test_database_initialization_failure_keeps_health_and_marks_unready` → **3 passed in 5.58s**. The runtime outage case injects a SQLAlchemy connection-probe exception; it does not simulate an actual SQLite storage outage.
+- [x] Project-owner manual container checks: with the anomaly estimator unavailable, `/health` returned 200, `/ready` returned 503 with anomaly=false, failure=true, database=true, anomaly prediction returned 503 with the sanitized unavailable-model detail, and failure prediction returned 200. The failure prediction was retrieved from `/predictions/{prediction_id}` with matching persisted fields.
+- [x] Project-owner manual container check: `DRIFT_KS_ALPHA=1.0` caused container startup to exit with code 1 and log `ValueError: DRIFT_KS_ALPHA must be greater than 0 and less than 1`.
+- [x] Project-owner manual runtime dependency inspection: image `pip check` reported no broken requirements; `pytest` and `httpx2` were absent from the production image.
+- [ ] Complete clean-checkout Docker verification.
+
+The Docker build, deployment, persistence, migration, missing-model, invalid-configuration, and runtime-dependency results above are project-owner-reported manual verification. The targeted readiness tests were executed in the project test environment. Invalid configuration fails before the API starts, so no `/ready` HTTP response is expected for that case. A real SQLite storage outage has not been tested and is not claimed; file-backed SQLite cannot be safely disrupted in-place for this check. Complete clean-checkout Docker verification remains unchecked. Milestone 5 acceptance remains pending independent review.
 
 Milestone 6: Optional Dashboard and Final Portfolio Polish
 Goal: Build a user-friendly demonstration layer on top of the working backend and prepare the repository for placement interviews.

@@ -1,0 +1,45 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: predictive-maintenance-api:local
+    init: true
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_PORT: ${APP_PORT:-8000}
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-sqlite:////var/lib/predictive-maintenance/predictive_maintenance.db}
+      MODEL_DIR: ${MODEL_DIR:-/app/models}
+      DRIFT_REFERENCE_PATH: ${DRIFT_REFERENCE_PATH:-/app/data/reference/drift_reference_v1.json}
+      DRIFT_KS_ALPHA: ${DRIFT_KS_ALPHA:-0.05}
+      DRIFT_CATEGORICAL_TVD_THRESHOLD: ${DRIFT_CATEGORICAL_TVD_THRESHOLD:-0.10}
+      DRIFT_MINIMUM_SAMPLE_SIZE: ${DRIFT_MINIMUM_SAMPLE_SIZE:-20}
+      METRICS_WINDOW_SECONDS: ${METRICS_WINDOW_SECONDS:-300}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${HOST_PORT:-8000}:${APP_PORT:-8000}"
+    volumes:
+      - predictive_maintenance_data:/var/lib/predictive-maintenance
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/ready' % os.environ.get('APP_PORT', '8000'), timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+volumes:
+  predictive_maintenance_data:
+    name: ${DATABASE_VOLUME_NAME:-predictive-maintenance-data}

@@ -23,6 +23,8 @@ ENV/
 
 # Environment and secrets
 .env
+.env.*
+!.env.example
 
 # Data – keep structure, ignore large files
 data/raw/*.csv

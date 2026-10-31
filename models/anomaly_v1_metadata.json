@@ -1,0 +1,100 @@
+{
+  "model_type": "isolation_forest",
+  "model_version": "anomaly_v1",
+  "feature_names": [
+    "num__Air temperature [K]",
+    "num__Process temperature [K]",
+    "num__Rotational speed [rpm]",
+    "num__Torque [Nm]",
+    "num__Tool wear [min]",
+    "cat__Type_H",
+    "cat__Type_L",
+    "cat__Type_M"
+  ],
+  "training_timestamp": "2026-10-29T23:46:53.608543+00:00",
+  "random_seed": 42,
+  "dataset_rows": 10000,
+  "training_rows": 7000,
+  "model_params": {
+    "n_estimators": 200,
+    "contamination": 0.05
+  },
+  "threshold": -0.585987060729067,
+  "metrics": {
+    "train": {
+      "n_samples": 7000,
+      "n_anomalies_detected": 350,
+      "anomaly_rate": 0.05,
+      "score_min": -0.6911350784783202,
+      "score_max": -0.39535280339142237,
+      "score_mean": -0.4810922125317308,
+      "score_std": 0.054839506442042364,
+      "score_samples_threshold": -0.585987060729067,
+      "failure_overlap": {
+        "note": "Comparison of detected anomalies vs failure labels. A detected anomaly is not necessarily a failure.",
+        "true_positives": 39,
+        "false_positives": 311,
+        "false_negatives": 198,
+        "true_negatives": 6452,
+        "precision": 0.1114,
+        "recall": 0.1646
+      },
+      "baseline_comparison": {
+        "baseline_anomalies_detected": 800,
+        "baseline_anomaly_rate": 0.1143,
+        "agreement_with_iforest": 0.9157
+      },
+      "split": "train"
+    },
+    "validation": {
+      "n_samples": 1000,
+      "n_anomalies_detected": 54,
+      "anomaly_rate": 0.054,
+      "score_min": -0.698161887788492,
+      "score_max": -0.3975668515921886,
+      "score_mean": -0.4831920290839765,
+      "score_std": 0.05569631111401578,
+      "score_samples_threshold": -0.585987060729067,
+      "failure_overlap": {
+        "note": "Comparison of detected anomalies vs failure labels. A detected anomaly is not necessarily a failure.",
+        "true_positives": 6,
+        "false_positives": 48,
+        "false_negatives": 28,
+        "true_negatives": 918,
+        "precision": 0.1111,
+        "recall": 0.1765
+      },
+      "baseline_comparison": {
+        "baseline_anomalies_detected": 127,
+        "baseline_anomaly_rate": 0.127,
+        "agreement_with_iforest": 0.907
+      },
+      "split": "validation"
+    },
+    "test": {
+      "n_samples": 2000,
+      "n_anomalies_detected": 103,
+      "anomaly_rate": 0.0515,
+      "score_min": -0.6610200019441584,
+      "score_max": -0.39467147883755316,
+      "score_mean": -0.48273418940724955,
+      "score_std": 0.05548498551940566,
+      "score_samples_threshold": -0.585987060729067,
+      "failure_overlap": {
+        "note": "Comparison of detected anomalies vs failure labels. A detected anomaly is not necessarily a failure.",
+        "true_positives": 13,
+        "false_positives": 90,
+        "false_negatives": 55,
+        "true_negatives": 1842,
+        "precision": 0.1262,
+        "recall": 0.1912
+      },
+      "baseline_comparison": {
+        "baseline_anomalies_detected": 237,
+        "baseline_anomaly_rate": 0.1185,
+        "agreement_with_iforest": 0.909
+      },
+      "split": "test"
+    }
+  }
+}
