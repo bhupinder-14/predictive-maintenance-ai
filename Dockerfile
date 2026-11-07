@@ -37,4 +37,4 @@ USER 10001:10001
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "exec uvicorn src.api.main:app --host 0.0.0.0 --port \"${APP_PORT:-8000}\""]
+CMD ["sh", "-c", "exec uvicorn src.api.main:app --host 0.0.0.0 --port \"${PORT:-${APP_PORT:-8000}}\""]

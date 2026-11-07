@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import DRIFT_REFERENCE_PATH, LOG_LEVEL, METRICS_WINDOW_SECONDS
 
@@ -23,6 +26,35 @@ from src.monitoring.drift import DriftDetector
 from src.monitoring.metrics import OperationalMetrics, RequestMetricsMiddleware
 
 logger = logging.getLogger(__name__)
+
+
+def _configured_frontend_origins() -> list[str]:
+    """Return the single explicitly configured browser origin, or none."""
+    configured = os.getenv("FRONTEND_ORIGIN", "").strip()
+    if not configured:
+        return []
+
+    try:
+        parsed = urlsplit(configured)
+        # Accessing .port also validates malformed and out-of-range ports.
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError("FRONTEND_ORIGIN must be one valid HTTP(S) origin") from exc
+
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.netloc
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or "*" in parsed.netloc
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("FRONTEND_ORIGIN must be one valid HTTP(S) origin without a path")
+
+    return [f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"]
 
 
 def _configure_api_logging() -> None:
@@ -137,6 +169,13 @@ def create_app(
     application.add_middleware(
         RequestMetricsMiddleware,
         metrics=operational_metrics,
+    )
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=_configured_frontend_origins(),
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Accept", "Content-Type"],
     )
     application.include_router(router)
     return application

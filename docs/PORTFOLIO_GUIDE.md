@@ -169,6 +169,21 @@ docker compose logs -f api
 
 The API is published as `127.0.0.1:8000:8000` by default: it is reachable only from the Docker host, while container port 8000 remains unchanged. `HOST_IP` can be deliberately overridden to publish on another host interface; do this only behind a trusted network and appropriate security boundary. The API has no authentication or authorization, and binding to an interface does not add either. `HOST_PORT` changes the host port and `APP_PORT` changes the container port. `docker compose down` retains the named volume; deleting a volume permanently removes saved history and drift reports. Do not use destructive volume commands on data you need.
 
+### Render Free deployment settings
+
+The repository can be deployed as two Render services after the required deployment variables are configured:
+
+- **Backend Web Service:** repository root, Docker runtime, `Dockerfile`, Free plan, HTTP health check `/ready`. The Docker command binds `0.0.0.0` and chooses port in this order: `PORT`, `APP_PORT`, then `8000`. Render supplies `PORT` (default `10000`); Compose and standalone Docker continue to use `APP_PORT`/`8000` when `PORT` is absent.
+- **Frontend Static Site:** root directory `frontend`, build command `npm ci && npm run build`, publish directory `dist`, and rewrite `/*` to `/index.html` using Rewrite so React Router handles direct navigation and refreshes.
+- Set backend `FRONTEND_ORIGIN` to exactly the deployed frontend origin (scheme and host only, no path). CORS allows only that one origin, `GET`/`POST`, and `Accept`/`Content-Type`; credentials are disabled. If unset, no cross-origin browser origin is allowed. Local Vite proxy requests are same-origin and need no CORS configuration.
+- Set frontend build-time `VITE_API_BASE_URL` to the backend origin, without `/api`. It is public configuration embedded into the generated JavaScript, not a secret. Do not put a future service URL in source code.
+
+For this Dockerfile, set Render's `PORT=8000` so the listener matches its existing `EXPOSE 8000` declaration. Render's default is `10000`, but its web-service port can be configured; leaving `PORT` at its default is also expected to work when Render detects the bound port. If bypassing the Vite proxy locally, set backend `FRONTEND_ORIGIN=http://127.0.0.1:5173`; the normal same-origin proxy does not need it.
+
+The API does not implement authentication, authorization, rate limiting, or a request-body byte cap. Prediction inputs have bounded sensor values and name lengths, but drift requests permit up to 10,000 observations. CORS does not restrict direct clients. For an anonymous public demo, add modest request/batch limits and rate controls at the API or trusted edge before inviting unrestricted use; no new dependency or such enforcement is included here.
+
+On Render Free the backend's SQLite filesystem is ephemeral, so saved history and drift reports can be lost on restart, redeploy, or idle spin-down. The free instance has 512 MB RAM and 0.1 CPU; expect cold starts and validate memory/latency on the hosted instance. The API is a portfolio demo, not a durable production service.
+
 ### Frontend development and tests
 
 In a separate terminal:

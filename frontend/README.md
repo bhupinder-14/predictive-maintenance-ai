@@ -26,6 +26,18 @@ npm run dev
 
 `API_PROXY_TARGET` is Vite development-server configuration, not a browser secret or production API URL.
 
+For a production static build hosted separately from FastAPI, set the build-time
+variable `VITE_API_BASE_URL` to the backend origin, for example
+`https://<backend-service>.onrender.com` (no `/api` suffix). The client then
+calls the backend routes directly. The variable is embedded in public browser
+assets and must never contain a secret. If it is unset, the client keeps the
+`/api` base used by the local Vite proxy. Configure the backend's
+`FRONTEND_ORIGIN` to the exact static-site origin; otherwise cross-origin
+browser requests are denied. Local Vite proxy use does not require CORS because
+the browser talks to the Vite origin. If local development deliberately bypasses
+the proxy and calls FastAPI from the browser, set the backend process variable
+`FRONTEND_ORIGIN=http://127.0.0.1:5173` before starting it.
+
 ## Checks
 
 ```powershell

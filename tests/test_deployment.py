@@ -102,6 +102,13 @@ def test_container_build_context_contains_runtime_artifacts_and_excludes_dev_fil
     assert "/ready" in compose
 
 
+def test_docker_startup_port_precedence_is_render_port_then_app_port_then_8000() -> None:
+    dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+    assert '--host 0.0.0.0 --port \\"${PORT:-${APP_PORT:-8000}}\\"' in dockerfile
+    assert 'APP_PORT=8000' in dockerfile
+
+
 @pytest.mark.parametrize("family", ["anomaly", "failure"])
 def test_prediction_record_verifier_checks_id_family_and_saved_result(family: str) -> None:
     if family == "anomaly":
