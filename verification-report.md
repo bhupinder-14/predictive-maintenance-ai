@@ -69,7 +69,7 @@ This is row-level failure classification, not future-failure forecasting. The Ra
 - `models/failure_v1_metadata.json`
 - `models/failure_v1_evaluation.json`
 
-Artifact files are git-ignored as model outputs; rerun the training commands to regenerate them. Dataset and model limitations are documented in `README.md` and `CHECKLIST.md`.
+Historical Milestone 1 status: at that point, model artifacts were git-ignored outputs and could be regenerated with the training commands. As of commit `a2a09737b42b34fcabb650654d323f1e0fd09c14`, the six v1 production inference artifacts are tracked for deployment; generated evaluation reports and other model outputs remain ignored.
 
 ## Milestone 2 verification (2026-10-30)
 
@@ -203,9 +203,9 @@ Final complete command: `.venv\Scripts\python.exe -m pytest -p no:cacheprovider 
 
 `.venv\Scripts\python.exe -m pip check` → **No broken requirements found.** `git diff --check` → **No errors** (Git reports line-ending conversion warnings for existing CRLF/LF worktree files).
 
-Production model artifacts and the checked-in drift reference were not modified. Existing direct saved-model/API prediction comparisons and Milestones 1–3 regression tests passed. No Milestone 5 work was started. Independent acceptance audit remains pending; no Milestone 4 acceptance is claimed.
+At the time of this Milestone 4 report, production model artifacts and the checked-in drift reference were not modified; direct saved-model/API prediction comparisons and Milestones 1–3 regression tests passed. Milestone 5 work had not started, and Milestone 4 acceptance was pending. Milestone 4 was accepted before the Milestone 5 work recorded below.
 
-## Milestone 5 implementation verification (2026-10-30; independent acceptance pending)
+## Historical Milestone 5 implementation verification (2026-10-30; before owner-run Docker verification)
 
 Added a Python 3.12 slim Docker image definition, one-service Compose configuration, build-context exclusions, persistent SQLite volume configuration, and a host-side deployment smoke-check script. The image installs `requirements.txt`; Pytest and TestClient dependencies were separated into `requirements-dev.txt` so they are not installed in the runtime image. No application entry point, model-loading behavior, migration logic, prediction semantics, or drift method was replaced. Configuration now rejects invalid log levels and out-of-range numeric drift settings clearly at import/startup.
 
@@ -218,11 +218,11 @@ The Dockerfile runs Uvicorn as UID/GID 10001, includes the six runtime model bun
 - `git diff --check` → **No errors**; Git emitted line-ending conversion warnings for the mixed-ending worktree.
 - Parsed `compose.yaml` with the available PyYAML parser and checked its single API service, named volume, restart policy, read-only root, and `/ready` check → **passed**.
 - Ran `scripts/verify_deployment.py` against a temporary local Uvicorn server and a temporary SQLite database → exit code **0**. The script verified `/health`, `/ready`, `/docs`, `/openapi.json`, both prediction routes and saved prediction retrieval, both metrics paths, and persisted drift POST/GET. It wrote only to its temporary database.
-- `docker --version` and `docker compose version` could not run because `docker` is not installed/available in this environment. Therefore no Docker image build, image-size measurement, container health test, or disposable named-volume recreation test is claimed. Those items remain unchecked in `CHECKLIST.md` for a Docker-enabled independent audit.
+- At the time of this implementation verification, `docker --version` and `docker compose version` could not run because Docker was unavailable in that environment. No image build or container test was claimed in that audit; subsequent owner-run Docker evidence is recorded in the current status section below.
 
-Production model artifact and drift-reference SHA-256 values match those recorded before this milestone work. No models were retrained, the reference was not regenerated, and no project database was initialized or modified; tests and the local API smoke check used temporary databases. Milestone 6 was not started. Milestone 5 acceptance is not claimed.
+Production model artifact and drift-reference SHA-256 values match those recorded before this milestone work. No models were retrained, the reference was not regenerated, and no project database was initialized or modified; tests and the local API smoke check used temporary databases. Milestone 6 was not started. At the time of this historical implementation report, Milestone 5 acceptance had not been claimed.
 
-## Milestone 5 pre-deployment audit corrections (2026-10-30; Docker verification pending)
+## Historical Milestone 5 pre-deployment audit corrections (2026-10-30; Docker verification pending at that time)
 
 The image now has a default `DATABASE_URL` under `/var/lib/predictive-maintenance`, and the Dockerfile creates/chowns that directory to UID/GID 10001. Compose continues to supply its `DATABASE_URL` override. The README documents that standalone `docker run` needs a named volume mounted at this location for records to survive container removal; no broad writable application directory or root execution was introduced.
 
@@ -233,7 +233,7 @@ The deployment verifier now checks `/health` and `/ready` fields, required OpenA
 - Targeted deployment tests: `.venv\Scripts\python.exe -m pytest tests/test_deployment.py -p no:cacheprovider -v` → **9 passed**.
 - Ran the deployment verifier against a temporary local Uvicorn process and temporary SQLite file → exit code **0**. It checked health/readiness/docs/OpenAPI, both predictions and exact saved-record retrieval, equipment listing and history, metrics aliases, and drift POST/GET; the temporary database was 77,824 bytes afterward.
 - Ran against closed loopback port `127.0.0.1:1` with one-second timeout → exit code **1**, concise `Could not reach /health: URLError` message, no traceback.
-- Docker Engine/Compose remains unavailable. No Docker build, standalone/container run, container volume permission test, or container-recreation persistence test was performed.
+- At the time of this correction audit, Docker Engine/Compose was unavailable. No Docker build, standalone/container run, container volume permission test, or container-recreation persistence test was performed; later owner-run results are recorded below.
 
 Final verification for this correction pass:
 
@@ -241,9 +241,9 @@ Final verification for this correction pass:
 - `.venv\Scripts\python.exe -m pip check` → **No broken requirements found.**
 - `git diff --check` → **No errors**; Git emitted line-ending conversion warnings only.
 
-Model and drift-reference artifacts were not modified; the real project database was not accessed or changed. Docker build and container volume/runtime checks remain pending. Milestone 5 acceptance remains pending.
+At the time of this correction report, model and drift-reference artifacts were not modified and the real project database was not accessed or changed. Docker build and container volume/runtime checks were still pending then; later owner-run verification is recorded below.
 
-## Milestone 5 final Docker verification gap audit (2026-10-30; acceptance pending)
+## Historical Milestone 5 final Docker verification gap audit (2026-10-30; before clean-checkout run)
 
 No application or Docker files were changed in this audit. The project owner reports having manually verified image startup, UID/GID 10001, healthy status, API endpoints, and persistence across Compose and standalone recreation with named volumes in a separate environment. Those are recorded here as owner-reported results; they were not independently repeated in this execution environment.
 
@@ -262,11 +262,11 @@ No application or Docker files were changed in this audit. The project owner rep
 
 The Dockerfile sets the same default SQLite file that Compose uses, creates its parent directory, and assigns directory ownership to UID/GID 10001 before switching users. Compose overrides `DATABASE_URL` with the same volume-backed default and mounts its named volume at that parent directory. The API startup calls `Database.initialize()`, which runs SQLAlchemy table creation and the existing additive SQLite migration. Its health probe invokes Python's standard-library `urlopen` against `/ready`; a non-2xx readiness response raises an HTTP error and produces an unhealthy probe exit. These are source/configuration findings, not container execution results.
 
-Still unverified in this environment: a fresh/no-cache build from current source; actual UID 10001 writes to a mounted volume; migration and writes against a pre-existing mounted SQLite DB; data path persistence and recreation in Docker; actual health status transitions; and standalone `docker run` persistence using the documented named volume. Existing volumes were not inspected, deleted, or modified. The model/reference files were not modified or regenerated. The separate manual checks reported by the owner are not treated as independently audited evidence. Milestone 5 acceptance remains pending.
+At that audit date, a fresh/no-cache build, actual mounted-volume writes, migration of a pre-existing mounted DB, Docker persistence/recreation, health transitions, and standalone named-volume persistence had not been independently verified in that environment. The later owner-run clean-checkout deployment evidence and final read-only audit are recorded below. No existing volume was modified by that audit.
 
-## Milestone 5 manual Docker evidence and readiness-test update (2026-10-30; independent acceptance pending)
+## Historical Milestone 5 manual Docker evidence and readiness-test update (2026-10-30; before final acceptance)
 
-This is the latest Milestone 5 status and supersedes earlier pending Docker-verification statements in this report, which describe the state of the earlier audits.
+At the time of this October 30 report, this was the latest Milestone 5 status and it superseded earlier pending Docker-verification statements, which describe the state of those earlier audits.
 
 The project owner reports completing the following manual Docker checks after the final Docker gap audit. These results are recorded as owner-provided evidence; they were not executed again in this documentation update:
 
@@ -286,9 +286,9 @@ Executed:
 
 Result: **3 passed in 5.58s**. The tests cover normal ready/health responses, startup database initialization failure, an injected SQLAlchemy exception during the readiness connection probe, `/health` remaining available during that injected failure, sanitized readiness output, and readiness recovery after removing the injection. The injected probe exception is a test of readiness behavior; it does **not** simulate an actual SQLite storage outage. No real SQLite outage is claimed or attempted.
 
-At the time of this update, runtime dependency inspection inside the freshly built image, missing-artifact and invalid-runtime-configuration tests inside a container, and complete clean-checkout Docker verification remained outstanding. The subsequent manual evidence update below supersedes that status for the first three checks; clean-checkout verification remains outstanding.
+At the time of this October 30 update, runtime dependency inspection, container missing-artifact/invalid-configuration checks, and clean-checkout Docker verification remained outstanding. Subsequent owner-run evidence supersedes that status; the current scope split is recorded below.
 
-## Milestone 5 additional manual acceptance evidence (2026-10-30; independent acceptance pending)
+## Historical Milestone 5 additional manual acceptance evidence (2026-10-30; before final acceptance)
 
 This update supersedes the preceding section's status for runtime dependency inspection and missing-model/invalid-configuration container checks. The following results were manually verified by the project owner and recorded here as supplied evidence; they were not rerun during this documentation update:
 
@@ -296,4 +296,53 @@ This update supersedes the preceding section's status for runtime dependency ins
 - Missing-model behavior with the anomaly model unavailable: `GET /health` returned HTTP 200; `GET /ready` returned HTTP 503 with anomaly=false, failure=true, database=true; `POST /predict/anomaly` returned HTTP 503 with `{"detail":"Anomaly model is unavailable"}`; and `POST /predict/failure` returned HTTP 200. The resulting failure prediction was retrieved at `/predictions/{prediction_id}` with HTTP 200 and matching persisted fields.
 - Invalid configuration: a disposable container configured with `DRIFT_KS_ALPHA=1.0` exited with code 1. Its logs contained `ValueError: DRIFT_KS_ALPHA must be greater than 0 and less than 1`. Since configuration validation fails before the API starts, this is a startup-failure result and has no `/ready` HTTP status.
 
-Earlier owner-reported checks for fresh image build, Compose deployment and health, 13/13 deployment smoke checks, model loading, non-root volume write access, Compose and standalone volume persistence, and the repeatable legacy migration remain recorded above. Complete clean-checkout Docker verification remains outstanding. No actual SQLite storage outage was tested; it remains explicitly unverified. Milestone 5 acceptance remains pending independent review.
+At the time of that October 30 entry, clean-checkout Docker verification remained outstanding. It was subsequently completed by the owner-run verification documented below. No actual SQLite storage outage was tested; it remains explicitly unverified.
+
+## Historical Milestone 5 clean-checkout status (2026-10-31; before training reproducibility run)
+
+This section supersedes earlier dated statements that Docker execution or clean-checkout deployment verification remained outstanding. It distinguishes the owner-run Docker execution from checks independently performed by the final audit agent. The audit agent did not run Docker or modify any resource.
+
+### Owner-run clean-checkout deployment evidence
+
+The project owner reports that a fresh image was built from a detached clean worktree in a temporary directory at commit `a2a09737b42b34fcabb650654d323f1e0fd09c14`. Compose resolved one port mapping, `18082:8000`, and used a disposable database volume for the deployment check.
+
+- All six committed production artifacts were SHA-256 checked. The container ran as UID/GID `10001:10001`, reached healthy status, and `/health`, `/ready`, and `/docs` returned HTTP 200. Readiness showed both models and the database available.
+- OpenAPI was version 3.1.0 with the eight required API paths. `scripts/verify_deployment.py` reported `passed` and checked 13 endpoints.
+- Anomaly prediction `4f84013f-8b47-4f63-a1dd-5fd1fbcf2453`, failure prediction `23a67abc-a771-4362-a562-03d4eabb994a`, and drift report `1` were retrieved. After forced recreation, old container `4ecebc46a96c1f17085d4ac41688cce8c7ac95a015ca6a2ffa3230d724d52299` was replaced by `4a6b9d1578e59a2319efa431af719b3a6f8ed4fc5b2c9ec6056b3f837315926d`; the new container became healthy, and both predictions plus the drift report remained retrievable with unchanged model versions.
+- Runtime image `pip check` reported no broken requirements; `pytest` and `httpx2` were absent. Missing-anomaly-artifact behavior passed while failure inference remained available. Invalid `DRIFT_KS_ALPHA=1.0` caused startup exit code 1 with the expected validation message.
+- On a disposable legacy SQLite volume, startup migration preserved report ID 17 and its original values, added all five nullable columns and the required index, left the new fields NULL for that row, and passed again after restart. UID 10001 could write to the mounted volume.
+
+### Independent read-only audit evidence and limits
+
+The audit agent confirmed the main repository `HEAD` equals the requested commit and its `git status --short` was empty. A command-scoped `safe.directory` override was needed to inspect the owner-created worktree because it is owned by a different Windows account; its `HEAD` matched the commit and its status was empty. The audit independently hashed the six Git blobs and confirmed all matched their expected SHA-256 values. Docker was not installed in the audit agent's environment, so Docker build, API, health, persistence, and migration behavior were not independently rerun; those execution results above remain explicitly owner-run evidence.
+
+The three readiness tests previously executed in the project environment passed in 5.58 seconds. The runtime failure is injected at the SQLAlchemy connection probe and recovery is tested by removing that injection. It does **not** establish behavior during a real SQLite storage outage. No actual SQLite storage outage has been tested.
+
+### Clean-checkout scope and acceptance status
+
+At the time of this entry, clean-checkout deployment using committed production artifacts was complete, but full training reproducibility from a clean checkout was **not verified**. The earlier 57-passed full-suite result was a local run, not a clean-worktree full-suite run. The subsequent owner-run training reproduction is recorded in the following section.
+
+Checklist section 5.4 and its Milestone 5 completion condition explicitly require a new developer to obtain data, train models, generate artifacts, start the API, make and persist a prediction, and run tests. At the time of this entry that scope remained a mandatory blocker. No actual SQLite storage outage was tested; that limitation remains current.
+
+## Clean-checkout training reproducibility completion (2026-10-31; project-owner-run evidence)
+
+The project owner completed the full training reproducibility workflow in a separate disposable Git worktree at base commit `a2a09737b42b34fcabb650654d323f1e0fd09c14`. This is distinct from the Docker clean-checkout deployment verification above, which used the six committed production artifacts. This documentation update records the owner-provided execution evidence; it did not rerun training or tests.
+
+- Downloaded and extracted the official UCI AI4I 2020 dataset. Its SHA-256 was `dc6630cd9b1f0f853922fad78a1b6436570d3f1ec863f1dd5c4340ac56bc8a8e`, matching the committed drift-reference provenance.
+- Created a Python 3.12.10 environment, installed `requirements-dev.txt`, and ran `pip check` successfully with no broken requirements.
+- Ran `python -m scripts.train_anomaly`, `python -m scripts.train_failure`, and `python -m scripts.evaluate`; all completed successfully.
+- Reproduced the reported held-out failure-classification results: precision 0.7955, recall 0.5147, F1 0.6250, ROC-AUC 0.9648, PR-AUC 0.7406, and confusion matrix TN=1923, FP=9, FN=33, TP=35. Isolation Forest flagged 103 of 2,000 test rows (5.15%).
+- Ran `python -m scripts.generate_drift_reference`. The regenerated JSON matched the committed reference after normalizing timestamp fields; all other keys and statistics matched.
+- Ran the complete test suite: **57 passed in 13.06 seconds** using a dedicated `--basetemp` directory. An initial Windows pytest temporary-directory permission issue was resolved by using that dedicated base directory; it was an environment issue, not reported as an application test failure.
+- Started the API with the newly generated model artifacts and an isolated disposable SQLite database. `/ready` returned HTTP 200 with anomaly=true, failure=true, and database=true. `scripts/verify_deployment.py` passed all 13 checks covering health, readiness, docs/OpenAPI, both predictions and persisted retrieval, equipment listing/history, both metrics paths, and drift POST/GET.
+- Verified all eight generated model/evaluation artifacts and the generated drift reference were present. The disposable worktree remained clean; `git diff --exit-code -- models data/reference` passed. The API process was stopped after verification.
+
+The generated artifacts and reference were isolated from the committed baseline. This establishes workflow and reported-metric reproducibility, not bit-for-bit identical model artifact hashes across dependency versions. Clean-checkout training reproducibility criterion 5.4B is complete. The final independent audit and acceptance decision are recorded below.
+
+The actual SQLite storage-outage scenario remains **not verified**. Existing readiness tests inject a SQLAlchemy connection-probe failure, verify HTTP 503/unready behavior and recovery, and keep `/health` available; they do not simulate a physical database-file or disk outage. This limitation is distinct from the successful disposable-database API persistence verification.
+
+## Final Milestone 5 acceptance (2026-10-31)
+
+The final independent audit returned **PASS WITH LIMITATIONS** and recommended **ACCEPT MILESTONE 5**. Milestone 5 is **ACCEPTED**. The audit independently checked Git state, the documentation changes, and deployment/training implementation by source inspection. Docker execution, clean-checkout training, evaluation, tests, and live API results are project-owner-run evidence recorded above; the audit did not rerun Docker, training, or the test suite.
+
+Limitations remain explicit: an actual SQLite storage/disk outage and recovery is **NOT VERIFIED**; injected SQLAlchemy readiness-probe failure/recovery tests are not a physical storage outage test. Bit-for-bit model artifact reproducibility across dependency versions is **NOT GUARANTEED**. These limitations were not marked as passed.

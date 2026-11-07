@@ -18,7 +18,7 @@ services:
       METRICS_WINDOW_SECONDS: ${METRICS_WINDOW_SECONDS:-300}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
-      - "${HOST_PORT:-8000}:${APP_PORT:-8000}"
+      - "${HOST_IP:-127.0.0.1}:${HOST_PORT:-8000}:${APP_PORT:-8000}"
     volumes:
       - predictive_maintenance_data:/var/lib/predictive-maintenance
     read_only: true

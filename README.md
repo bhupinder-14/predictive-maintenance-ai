@@ -1,6 +1,8 @@
 # Predictive Maintenance & Anomaly Detection AI
 
-Milestones 1–4 are accepted. Milestone 5 adds Docker packaging and deployment readiness; it remains subject to independent acceptance.
+Milestones 1–5 are accepted. Milestone 5 received a final independent audit on 2026-10-31 with verdict **PASS WITH LIMITATIONS** and recommendation **ACCEPT MILESTONE 5**. Its outstanding limitations are recorded below.
+
+For a detailed project walkthrough, architecture, ML methodology, evaluation results, setup instructions, and known limitations, see the [Portfolio Guide](docs/PORTFOLIO_GUIDE.md).
 
 ## Dataset
 
@@ -33,6 +35,8 @@ python -m scripts.train_failure
 python -m scripts.evaluate
 python -m pytest -q
 ```
+
+For a clean-checkout training reproduction, first obtain the official [UCI AI4I 2020 dataset](https://archive.ics.uci.edu/dataset/601/ai4i+2020+predictive+maintenance+dataset), place `ai4i2020.csv` at `data/raw/ai4i2020.csv`, then install `requirements-dev.txt` and run the commands above. The training scripts overwrite the versioned v1 filenames in `MODEL_DIR`; to protect committed production artifacts during a reproduction run, use a separate disposable checkout and set `MODEL_DIR` to a new external output directory before running either training command. Set `DRIFT_REFERENCE_PATH` to a separate output path before regenerating the drift reference, because the generator overwrites its configured path.
 
 `requirements.txt` contains runtime dependencies. `requirements-dev.txt` adds Pytest and the FastAPI TestClient dependency for local development and testing; Docker installs only `requirements.txt`. The training scripts print a data-quality report and save artifacts and JSON evaluation reports under `models/`. Raw data, generated evaluation reports, other generated model files, `.venv`, and project-local generated files are git-ignored. The six versioned v1 production inference artifacts are explicitly tracked for reproducible deployment despite the broad model-file ignore rules.
 
@@ -290,7 +294,7 @@ This command submits two predictions and a 20-row drift batch, checks equipment 
 
 ### Environment configuration
 
-Compose reads optional values from `.env`; `.env.example` contains safe defaults and no secrets. `HOST_PORT` controls the published host port and `APP_PORT` the port inside the container. `DOCKER_DATABASE_URL` defaults to a SQLite file inside the persistent data volume; if overridden, keep the database file under `/var/lib/predictive-maintenance` so it remains persistent. `DATABASE_VOLUME_NAME` selects the named Docker volume. `MODEL_DIR` and `DRIFT_REFERENCE_PATH` default to the immutable artifacts included in the image. `LOG_LEVEL`, `METRICS_WINDOW_SECONDS`, `DRIFT_KS_ALPHA`, `DRIFT_CATEGORICAL_TVD_THRESHOLD`, and `DRIFT_MINIMUM_SAMPLE_SIZE` configure logging and the existing monitoring behavior. Invalid numeric drift thresholds fail clearly during configuration import. Do not place secrets in the image or commit a populated `.env` file.
+Compose reads optional values from `.env`; `.env.example` contains safe defaults and no secrets. `HOST_IP` controls the host interface used for Compose port publishing and defaults to loopback (`127.0.0.1`). Overriding it with another interface can expose this unauthenticated API to other reachable hosts; use non-loopback binding only behind a trusted network/security boundary. Localhost binding does not provide authentication or authorization. `HOST_PORT` controls the published host port and `APP_PORT` the port inside the container. `DOCKER_DATABASE_URL` defaults to a SQLite file inside the persistent data volume; if overridden, keep the database file under `/var/lib/predictive-maintenance` so it remains persistent. `DATABASE_VOLUME_NAME` selects the named Docker volume. `MODEL_DIR` and `DRIFT_REFERENCE_PATH` default to the immutable artifacts included in the image. `LOG_LEVEL`, `METRICS_WINDOW_SECONDS`, `DRIFT_KS_ALPHA`, `DRIFT_CATEGORICAL_TVD_THRESHOLD`, and `DRIFT_MINIMUM_SAMPLE_SIZE` configure logging and the existing monitoring behavior. Invalid numeric drift thresholds fail clearly during configuration import. Do not place secrets in the image or commit a populated `.env` file.
 
 The container receives no project-directory bind mount. The trained model files and versioned drift-reference JSON are copied into the image. Startup loads them without training or regenerating reference statistics. Database initialization runs on startup and applies the existing additive, idempotent SQLite migration.
 
@@ -302,7 +306,7 @@ The image itself defaults `DATABASE_URL` to `/var/lib/predictive-maintenance/pre
 
 ```powershell
 docker volume create predictive-maintenance-data
-docker run --rm -p 8000:8000 `
+docker run --rm -p 127.0.0.1:8000:8000 `
   --mount source=predictive-maintenance-data,target=/var/lib/predictive-maintenance `
   predictive-maintenance-api:local
 ```
@@ -332,11 +336,19 @@ docker volume rm predictive-maintenance-data
 
 `/health` is a liveness response and remains independent of database connectivity. `/ready` checks that both models loaded and that the database answers a live `SELECT 1`; Compose uses `/ready`, so missing/incompatible models or database failure makes the container unhealthy while the process can remain alive for diagnosis. A process that fails before serving HTTP is reported by Docker as exited/unhealthy according to its exit state and restart policy.
 
-The runtime image runs as UID/GID 10001, uses a read-only root filesystem with a temporary `/tmp`, drops Linux capabilities, and enables `no-new-privileges`. Only the API port is published. This is baseline container hardening, not a security certification: the base tag and minimum-version dependency ranges can change over time, and this milestone did not run a vulnerability scan or produce an SBOM. Docker was unavailable in the implementation environment, so image build, container health, and named-volume recreation still require verification on a host with Docker Engine/Compose. The smoke-check script and complete local test suite are available for that verification.
+The runtime image runs as UID/GID 10001, uses a read-only root filesystem with a temporary `/tmp`, drops Linux capabilities, and enables `no-new-privileges`. Only the API port is published. This is baseline container hardening, not a security certification: the base tag and minimum-version dependency ranges can change over time, and this milestone did not run a vulnerability scan or produce an SBOM.
+
+### Milestone 5 clean-checkout deployment verification
+
+The project owner completed a fresh Docker build and deployment from a detached clean worktree at commit `a2a09737b42b34fcabb650654d323f1e0fd09c14`. The six committed production model artifacts were SHA-256 verified. The container ran as UID/GID `10001:10001`; Docker health, `/health`, `/ready`, and `/docs` passed; both models and the database were available; OpenAPI 3.1.0 exposed the required API paths; and `scripts/verify_deployment.py` passed all 13 endpoint checks.
+
+The verifier created anomaly prediction `4f84013f-8b47-4f63-a1dd-5fd1fbcf2453`, failure prediction `23a67abc-a771-4362-a562-03d4eabb994a`, and drift report `1` in the disposable volume. After force-recreating the container on that same volume, the new container became healthy and all three records remained retrievable with matching model versions. The owner also verified missing-model behavior, invalid `DRIFT_KS_ALPHA=1.0` startup failure, and runtime dependency contents. The legacy SQLite migration passed in a separate disposable-volume test. The readiness failure/recovery tests passed in the project Python test environment: they inject an SQLAlchemy probe exception and do not simulate a real SQLite outage. This deployment evidence was owner-run; the final read-only audit verified Git/worktree identity and committed artifact hashes but could not rerun Docker because the Docker CLI was unavailable in its environment.
+
+Clean-checkout deployment and clean-checkout training reproducibility were verified as separate activities. Deployment verification built and ran the application with the six committed model artifacts. The separate training reproduction downloaded the official UCI CSV, trained both models into an isolated output directory, regenerated the drift reference, ran the full tests, and verified the live API using the newly generated artifacts. It reproduced the reported held-out metrics, and the generated drift JSON matched the committed reference after normalizing timestamp fields. This does not guarantee bit-for-bit identical model artifact hashes across dependency versions. The actual SQLite storage-outage scenario remains **NOT VERIFIED**: automated readiness tests inject a SQLAlchemy connection-probe exception and test recovery, but do not simulate a physical database or disk outage. Milestone 5 was accepted following the final independent audit dated 2026-10-31; the verdict was PASS WITH LIMITATIONS.
 
 ## Current scope and limitations
 
 - Implemented: local CSV ingestion and validation, leakage-aware preprocessing/splitting, Isolation Forest with score cutoff and statistical comparison, Logistic Regression baseline, Random Forest comparison, class-imbalance weighting, held-out evaluation, metadata/artifact persistence, artifact reload, FastAPI health/readiness and inference endpoints, request validation, model compatibility checks, SQLite persistence and history endpoints, historical SQL helpers, process-local request/prediction metrics, a training-split-only versioned drift reference, validated drift evaluation, Docker packaging configuration, and Milestone 1–5 implementation work.
-- Not implemented yet: Docker image/container execution verification in this environment and a dashboard. Drift reports are persisted; raw drift request batches are not.
+- Completed: owner-run clean-checkout Docker deployment with committed artifacts and separate clean-checkout training reproducibility with freshly generated artifacts, as described above. Not verified: an actual SQLite storage outage. The implemented React frontend provides seven routes: Overview, Equipment Explorer, Equipment Profile, Prediction Lab, Prediction History, Drift Monitoring, and System Health. Drift reports are persisted; raw drift request batches are not.
 - No time-series forecasting or calibrated failure probability is claimed. Random Forest `predict_proba` is an estimator score and has not been separately calibrated.
 - Dataset values are synthetic and may not represent actual sensor distributions, failure prevalence, or operational costs.

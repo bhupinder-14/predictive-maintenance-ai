@@ -42,6 +42,9 @@ models/*.json
 *.db
 *.sqlite
 *.sqlite3
+*-wal
+*-shm
+*-journal
 
 # OS
 .DS_Store
@@ -51,7 +54,17 @@ Thumbs.db
 .pytest_cache/
 htmlcov/
 .coverage
+.coverage.*
 coverage.xml
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.hypothesis/
+
+# Local disposable capture/test data
+.codex-test-scratch/
+frontend/.vitest/
 
 # Jupyter (not used, but just in case)
 .ipynb_checkpoints/
